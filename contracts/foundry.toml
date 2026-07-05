@@ -1,0 +1,19 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+solc = "0.8.19"
+optimizer = true
+optimizer_runs = 200
+# Listing signatures bind to a fixed chainId in the EIP-712 domain (96 mainnet / 25925 testnet),
+# so the contract is deployed once per chain and verified against the matching bkcscan instance.
+
+[rpc_endpoints]
+kub-testnet = "https://rpc-testnet.bitkubchain.io"
+kub-mainnet = "https://rpc.bitkubchain.io"
+
+[etherscan]
+kub-testnet = { key = "verify", url = "https://testnet.bkcscan.com/api" }
+kub-mainnet = { key = "verify", url = "https://www.bkcscan.com/api" }

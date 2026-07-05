@@ -1,0 +1,65 @@
+name: Cron — marketplace pollers
+
+# ยิง cron endpoints เป็นระยะแทน Vercel Cron (ดู Docs/backend-plan.md ข้อ 3)
+# - sync-onchain : writer — อ่าน chain แล้วเขียน status ใน Supabase
+# - ship-deadline: reader — query order ใกล้หมดเขตส่งของ แล้วส่ง Telegram (ไม่แตะ status)
+# แยกเป็น 2 job อิสระต่อกัน เพื่อให้ sync fail แล้ว deadline ยังถูกยิงอยู่
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # ทุก 5 นาที — ค่าต่ำสุดของ GitHub Actions; อาจ delay ช่วง runner คิวยาว ถือว่ารับได้
+  workflow_dispatch: {}
+
+jobs:
+  sync-onchain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: cron-sync-onchain
+      cancel-in-progress: false
+    steps:
+      - name: Hit sync-onchain endpoint
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::APP_URL (Variables) หรือ CRON_SECRET (Secrets) ยังไม่ถูกตั้งใน repo settings"
+            exit 1
+          fi
+
+          response=$(curl -sS -m 60 -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/sync-onchain")
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $status"
+          echo "$body"
+          [ "$status" -ge 400 ] && { echo "::error::sync-onchain ตอบ $status"; exit 1; } || true
+
+  ship-deadline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: cron-ship-deadline
+      cancel-in-progress: false
+    steps:
+      - name: Hit ship-deadline endpoint
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::APP_URL (Variables) หรือ CRON_SECRET (Secrets) ยังไม่ถูกตั้งใน repo settings"
+            exit 1
+          fi
+
+          response=$(curl -sS -m 60 -w "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/ship-deadline")
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "HTTP $status"
+          echo "$body"
+          [ "$status" -ge 400 ] && { echo "::error::ship-deadline ตอบ $status"; exit 1; } || true
