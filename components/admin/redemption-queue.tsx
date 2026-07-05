@@ -70,7 +70,7 @@ export function RedemptionQueue() {
                             size="sm"
                             disabled={!tracking[o.id]?.trim()}
                             onClick={() => {
-                                setStatus(o.id, 'shipped', tracking[o.id].trim())
+                                setStatus(o.id, 'shipped', (tracking[o.id] ?? '').trim())
                                 toastSuccess(`${o.itemName} marked shipped (mock)`)
                             }}
                         >

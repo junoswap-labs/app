@@ -41,7 +41,17 @@ export const wagmiConfig = createConfig({
     }),
 })
 
-export const chainMetadata = {
+type ChainMeta = {
+    name: string
+    symbol: string
+    icon: string
+    explorer: string
+    // Some chain logos are dark glyphs that must be inverted on light backgrounds
+    // (NetworkSwitcher checks this). KUB's icon is a colored logo, so it stays unset.
+    invertInLight?: boolean
+}
+
+export const chainMetadata: Record<number, ChainMeta> = {
     [bitkub.id]: {
         name: 'KUB Chain',
         symbol: 'KUB',
@@ -54,10 +64,10 @@ export const chainMetadata = {
         icon: '/chains/kubchain.png',
         explorer: 'https://testnet.bkcscan.com',
     },
-} as const
+}
 
-export function getChainMetadata(chainId: number) {
-    return chainMetadata[chainId as keyof typeof chainMetadata]
+export function getChainMetadata(chainId: number): ChainMeta | undefined {
+    return chainMetadata[chainId]
 }
 
 /** Native tokens (ETH, KUB, …) are represented by the sentinel address 0xeee…eee. */

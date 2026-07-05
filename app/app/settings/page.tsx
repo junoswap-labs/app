@@ -12,8 +12,9 @@ import { GoogleLinkCard } from '@/components/settings/google-link-card'
 import { TelegramLinkCard } from '@/components/settings/telegram-link-card'
 import { useMockSettings } from '@/store/mock-settings'
 import { useKycStatus } from '@/store/mock-kyc'
+import type { KycStatus } from '@/types/kyc'
 
-const KYC_BADGE: Record<string, { label: string; variant: 'secondary' | 'outline' }> = {
+const KYC_BADGE: Record<KycStatus, { label: string; variant: 'secondary' | 'outline' }> = {
     unverified: { label: 'Not registered', variant: 'outline' },
     pending: { label: 'Under review', variant: 'secondary' },
     verified: { label: 'Verified seller', variant: 'secondary' },
