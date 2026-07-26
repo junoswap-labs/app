@@ -1,21 +1,23 @@
 'use client'
 
 import Link from 'next/link'
-import { useAccount } from 'wagmi'
 import { ShieldAlert, Clock } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { useKycStatus } from '@/store/mock-kyc'
+import { useIsAuthorized } from '@/hooks/useOnChainRoles'
+import { useMyApplications } from '@/hooks/useApplications'
 
-// Wraps listing flows — only KYC-verified sellers may list on the marketplace.
-// This gate is UX only; the real check is enforced server-side when the listing is submitted.
-export function KycGate({ children }: { children: React.ReactNode }) {
-    const { address } = useAccount()
-    const status = useKycStatus(address)
+// Wraps RWA listing — only wallets holding PermissionRegistry's AUTHORIZE_ROLE may list.
+// The on-chain role is the real gate; the 'authorize_rwa' application status is only used here
+// to show a friendlier "pending review" message while the on-chain grant hasn't landed yet.
+export function AuthorizeGate({ children }: { children: React.ReactNode }) {
+    const isAuthorized = useIsAuthorized()
+    const { data: applications } = useMyApplications('authorize_rwa')
 
-    if (status === 'verified') return <>{children}</>
+    if (isAuthorized) return <>{children}</>
 
-    const pending = status === 'pending'
+    const latest = applications?.[0]
+    const pending = latest?.status === 'pending'
 
     return (
         <Card>
@@ -30,8 +32,8 @@ export function KycGate({ children }: { children: React.ReactNode }) {
                 </h2>
                 <p className="max-w-md text-sm text-muted-foreground">
                     {pending
-                        ? 'Your KYC application is being reviewed. Listing unlocks as soon as you are verified.'
-                        : 'For buyer safety, listing NFTs or RWA items requires a one-time identity verification (KYC).'}
+                        ? 'Your application is being reviewed. Listing unlocks as soon as an admin approves it on-chain.'
+                        : 'For buyer safety, listing RWA items requires a one-time identity verification.'}
                 </p>
                 {!pending && (
                     <Button asChild className="mt-1">

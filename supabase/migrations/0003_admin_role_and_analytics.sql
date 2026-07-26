@@ -1,20 +1,17 @@
--- Admin role + analytics
--- 1) DB role สำหรับ gate "ฟังก์ชันพิเศษ" (analytics dashboard ฯลฯ) ฝั่ง UI/อ่านข้อมูล
---    หมายเหตุ: role นี้คนละชั้นกับ on-chain ARBITRATOR_ROLE — การ resolve dispute ที่ขยับเงินจริง
---    ถูกบังคับโดย contract เท่านั้น (ดู smartcontract-plan ข้อ 2) role ใน DB ใช้แค่คุมการ "เห็น/เข้า" ฟีเจอร์
--- 2) คอลัมน์ fee ที่ poller เขียนจาก event (OrderFulfilled.fee / RwaCompleted.fee) เพื่อให้ analytics รวม fee ได้
--- 3) analytics views — อ่านผ่าน service role ใน Route Handler เท่านั้น (revoke จาก anon/authenticated ไว้)
+-- Fee provenance + analytics
+-- Admin/Arbitrator gating is NOT a DB column — it's read live from PermissionRegistry.sol
+-- on-chain (see contracts/ and supabase/migrations/0001_base_schema.sql's header comment).
+-- This migration originally added a DB `users.role` column for UI-gating; that's superseded
+-- now that all role checks are on-chain, so it's dropped here rather than left as dead schema.
+-- 1) คอลัมน์ fee ที่ poller เขียนจาก event (OrderFulfilled.fee / RwaCompleted.fee) เพื่อให้ analytics รวม fee ได้
+-- 2) analytics views — อ่านผ่าน service role ใน Route Handler เท่านั้น (revoke จาก anon/authenticated ไว้)
 
--- 1) admin role -----------------------------------------------------------
-alter table users
-  add column if not exists role text not null default 'user';   -- 'user' | 'admin' | 'arbitrator'
-
--- 2) fee provenance -------------------------------------------------------
+-- 1) fee provenance -------------------------------------------------------
 -- poller เขียนค่าจาก event ตอน flip status; เก็บเป็นหน่วยเดียวกับ price/amount (token base units)
 alter table nft_orders add column if not exists fee numeric;     -- จาก OrderFulfilled.fee
 alter table rwa_orders add column if not exists fee numeric;     -- จาก RwaCompleted.fee / resolveDispute(releaseToSeller)
 
--- 3) analytics views ------------------------------------------------------
+-- 2) analytics views ------------------------------------------------------
 -- "ขายสำเร็จ" = NFT status='filled' และ RWA status in ('Completed','ResolvedSeller')
 -- (Refunded/ResolvedBuyer ไม่นับเป็นยอดขาย เพราะเงินไม่ได้ไปถึง seller)
 -- volume สรุปต่อ "token" เท่านั้น — ห้ามรวมข้าม token (คนละสกุล รวมกันไม่มีความหมาย)

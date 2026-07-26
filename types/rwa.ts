@@ -15,8 +15,9 @@ export interface RwaListing {
     title: string
     description: string
     imageUrls: string[]
-    price: string // human-readable (mock; real data stores base units)
-    paymentToken: string
+    price: string // human-readable, already formatted by token decimals
+    paymentToken: string // symbol, e.g. "KKUB" — reverse-looked-up from paymentTokenAddress via lib/tokens.ts
+    paymentTokenAddress: `0x${string}`
     seller: `0x${string}`
     buyer?: `0x${string}`
     status: RwaStatus
@@ -27,9 +28,16 @@ export interface RwaListing {
     resolvedToSeller?: boolean
 }
 
-/** Contract constants mirrored client-side for UX countdowns only — contract enforces for real */
+/**
+ * Contract constants mirrored client-side for UX countdowns only — contract enforces for real.
+ * RwaEscrow.sol's deadlines are constructor params now (per-deployment, so testnet can use
+ * minutes — see contracts/script/DeployRwaEscrow.s.sol), not fixed values; these are the mainnet
+ * defaults this app was built against. A future pass could read them live via
+ * lib/abis/rwa-escrow.ts's rwaEscrowDeadlinesAbi instead of assuming these.
+ */
 export const SHIP_DEADLINE_MS = 7 * 24 * 60 * 60 * 1000
-export const RECEIVE_DEADLINE_MS = 14 * 24 * 60 * 60 * 1000
+export const DISPUTE_GRACE_MS = 3 * 24 * 60 * 60 * 1000
+export const AUTO_RELEASE_DEADLINE_MS = 10 * 24 * 60 * 60 * 1000
 
 export type RwaAction =
     | 'fund'
@@ -38,4 +46,5 @@ export type RwaAction =
     | 'claimRefund'
     | 'openDispute'
     | 'resolveDispute'
+    | 'claimShipmentTimeout'
     | 'cancel'

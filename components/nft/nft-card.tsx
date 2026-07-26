@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { BadgeCheck, ImageOff } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { getCollectionConfig } from '@/lib/nft-collections'
+import { useCollectionConfig } from '@/hooks/useCollections'
 import { optimizeImage } from '@/lib/image'
 import type { NftListing } from '@/types/marketplace'
 
@@ -15,9 +15,9 @@ interface NftCardProps {
 // Browse card — renders from the denormalized listing (name/imageUrl/price), no chain reads.
 // Click → detail page
 export function NftCard({ listing }: NftCardProps) {
-    const verified = getCollectionConfig(listing.contract)?.verified ?? false
-    // Composite id in one segment (contract-tokenId) — becomes the real EIP-712 orderHash later
-    const href = `/app/nft/${listing.contract}-${listing.tokenId}`
+    const { data: config } = useCollectionConfig(listing.contract)
+    const verified = config?.verified ?? false
+    const href = `/app/nft/${listing.orderHash}`
     const sold = listing.status === 'sold'
 
     return (

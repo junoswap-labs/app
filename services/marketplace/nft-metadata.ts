@@ -1,6 +1,5 @@
 import type { NftMetadata } from '@/types/nft'
 import { resolveIpfs } from '@/lib/ipfs'
-import { getCollectionConfig } from '@/lib/nft-collections'
 
 /** Read metadata JSON from tokenURI (supports ipfs:// and data:application/json) */
 export async function fetchNftMetadata(tokenUri: string, gateway?: string): Promise<NftMetadata> {
@@ -18,17 +17,10 @@ export async function fetchNftMetadata(tokenUri: string, gateway?: string): Prom
 }
 
 /**
- * Find the image URL in metadata and resolve it into a displayable URL.
- * Order: the collection's config.resolveImage (if any) → `image` → `image_url`
+ * Find the image URL in metadata and resolve it into a displayable URL: `image` → `image_url`,
+ * through the collection's gateway override if it has one (see types/collection.ts).
  */
-export function resolveNftImage(
-    metadata: NftMetadata,
-    contract: string,
-    tokenId: string
-): string | null {
-    const config = getCollectionConfig(contract)
-    if (config?.resolveImage) return config.resolveImage(metadata, tokenId)
-
+export function resolveNftImage(metadata: NftMetadata, gateway?: string): string | null {
     const raw = metadata.image ?? metadata.image_url
-    return raw ? resolveIpfs(raw, config?.gateway) : null
+    return raw ? resolveIpfs(raw, gateway) : null
 }

@@ -11,15 +11,14 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { useMockListings } from '@/store/mock-listings'
+import { useFulfillNftOrder } from '@/hooks/useFulfillNftOrder'
 import { toastSuccess, toastError } from '@/lib/toast'
 import type { NftListing } from '@/types/marketplace'
 
 export function BuyNftDialog({ listing }: { listing: NftListing }) {
     const { address, isConnected } = useAccount()
-    const markSold = useMockListings((s) => s.markSold)
+    const fulfillOrder = useFulfillNftOrder()
     const [open, setOpen] = useState(false)
-    const [confirming, setConfirming] = useState(false)
 
     const isSeller = address?.toLowerCase() === listing.seller.toLowerCase()
 
@@ -28,13 +27,13 @@ export function BuyNftDialog({ listing }: { listing: NftListing }) {
             toastError('Please connect your wallet first')
             return
         }
-        setConfirming(true)
-        // MOCK: simulate waiting for on-chain tx confirmation (real flow = writeContract → receipt → sync poller)
-        await new Promise((r) => setTimeout(r, 1500))
-        markSold(listing.contract, listing.tokenId, address)
-        setConfirming(false)
-        setOpen(false)
-        toastSuccess(`Bought ${listing.name}!`)
+        try {
+            await fulfillOrder.mutateAsync(listing.orderHash)
+            setOpen(false)
+            toastSuccess(`Bought ${listing.name}!`)
+        } catch (err) {
+            toastError(err instanceof Error ? err.message : 'Purchase failed')
+        }
     }
 
     if (listing.status === 'sold') {
@@ -71,7 +70,7 @@ export function BuyNftDialog({ listing }: { listing: NftListing }) {
                 <DialogFooter>
                     <Button
                         onClick={handleBuy}
-                        isLoading={confirming}
+                        isLoading={fulfillOrder.isPending}
                         loadingText="Confirming on-chain…"
                         className="w-full"
                     >

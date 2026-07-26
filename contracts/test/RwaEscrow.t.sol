@@ -19,7 +19,7 @@ contract RwaEscrowTest is Test {
     bytes32 internal constant LISTING = keccak256("listing-1");
 
     function setUp() public {
-        escrow = new RwaEscrow(FEE_BPS, feeCollector);
+        escrow = new RwaEscrow(FEE_BPS, feeCollector, 7 days, 3 days, 10 days);
         pay = new MockERC20();
         escrow.setAllowedPaymentToken(address(pay), true);
         escrow.grantRole(escrow.ARBITRATOR_ROLE(), arbitrator);
@@ -243,6 +243,63 @@ contract RwaEscrowTest is Test {
         vm.prank(buyer);
         vm.expectRevert();
         escrow.setFeeBps(100);
+    }
+
+    function testConstructorRejectsDisputeGraceAfterAutoRelease() public {
+        vm.expectRevert("dispute grace must end before auto-release");
+        new RwaEscrow(FEE_BPS, feeCollector, 7 days, 10 days, 10 days);
+    }
+
+    function testClaimShipmentTimeoutBeforeDeadlineReverts() public {
+        _fund();
+        vm.prank(seller);
+        escrow.markShipped(LISTING);
+        // Exactly at the boundary it is still not claimable (strict >), matching claimRefund's style.
+        vm.warp(block.timestamp + escrow.AUTO_RELEASE_DEADLINE());
+        vm.expectRevert("auto-release deadline not passed");
+        escrow.claimShipmentTimeout(LISTING);
+    }
+
+    function testClaimShipmentTimeoutAfterDeadline() public {
+        _fund();
+        vm.prank(seller);
+        escrow.markShipped(LISTING);
+        vm.warp(block.timestamp + escrow.AUTO_RELEASE_DEADLINE() + 1);
+
+        // Permissionless: an unrelated address can trigger it, not just buyer/seller.
+        vm.prank(address(0xCAFE));
+        escrow.claimShipmentTimeout(LISTING);
+
+        uint256 fee = (AMOUNT * FEE_BPS) / 10000;
+        assertEq(uint256(_status(LISTING)), uint256(RwaEscrow.Status.Completed));
+        assertEq(pay.balanceOf(seller), AMOUNT - fee, "seller paid");
+        assertEq(pay.balanceOf(feeCollector), fee, "fee paid");
+        assertEq(pay.balanceOf(address(escrow)), 0, "vault drained");
+    }
+
+    function testClaimShipmentTimeoutRequiresShipped() public {
+        _fund();
+        vm.warp(block.timestamp + escrow.AUTO_RELEASE_DEADLINE() + 1);
+        vm.expectRevert("not shipped");
+        escrow.claimShipmentTimeout(LISTING);
+    }
+
+    function testClaimShipmentTimeoutBlockedOnceDisputed() public {
+        _toDisputed(); // warps to shippedAt + DISPUTE_GRACE + 1, still well before AUTO_RELEASE_DEADLINE
+        vm.warp(block.timestamp + escrow.AUTO_RELEASE_DEADLINE());
+        vm.expectRevert("not shipped");
+        escrow.claimShipmentTimeout(LISTING);
+    }
+
+    function testDisputeResolvesNormallyEvenAfterAutoReleaseDeadlineElapsed() public {
+        // A dispute opened inside the window stays resolvable by the arbitrator no matter how
+        // much time passes afterward — status left Shipped is the only thing claimShipmentTimeout
+        // checks, and Disputed leaves Shipped for good the moment openDispute succeeds.
+        _toDisputed();
+        vm.warp(block.timestamp + escrow.AUTO_RELEASE_DEADLINE() + 365 days);
+        vm.prank(arbitrator);
+        escrow.resolveDispute(LISTING, true);
+        assertEq(uint256(_status(LISTING)), uint256(RwaEscrow.Status.ResolvedSeller));
     }
 
     function testFeeRoundsDownOnSmallAmount() public {

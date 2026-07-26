@@ -40,8 +40,18 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
 
     bytes32 public constant ARBITRATOR_ROLE = keccak256("ARBITRATOR_ROLE");
 
-    uint256 public constant SHIP_DEADLINE = 7 days; // buyer can self-refund if seller hasn't shipped by now
-    uint256 public constant DISPUTE_GRACE = 14 days; // either party can open a dispute this long after shipping
+    // Set once at deploy time (not hardcoded constants) so a testnet deployment can use minutes
+    // instead of days for fast iteration, while mainnet uses the real day-scale values — same
+    // bytecode either way, see contracts/script/DeployRwaEscrow.s.sol.
+    uint256 public immutable SHIP_DEADLINE; // buyer can self-refund if seller hasn't shipped by now
+    // Dispute window opens at shippedAt+DISPUTE_GRACE and must close before AUTO_RELEASE_DEADLINE,
+    // or the auto-release could pay the seller out from under a dispute that hasn't had a chance
+    // to be opened yet. A dispute opened anywhere in [DISPUTE_GRACE, AUTO_RELEASE_DEADLINE) flips
+    // status away from Shipped, which permanently blocks claimShipmentTimeout — no race condition
+    // regardless of how long the arbitrator subsequently takes to resolve it. Enforced at
+    // construction (see constructor) so a misconfigured instance can never be deployed.
+    uint256 public immutable DISPUTE_GRACE; // either party can open a dispute this long after shipping
+    uint256 public immutable AUTO_RELEASE_DEADLINE; // anyone can force payout to seller after this if buyer never confirms
     uint256 public constant MAX_FEE_BPS = 1000; // 10% cap
     uint256 private constant BPS_DENOMINATOR = 10000;
 
@@ -60,6 +70,7 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
     );
     event RwaShipped(bytes32 indexed listingId, uint256 shippedAt);
     event RwaCompleted(bytes32 indexed listingId, uint256 amountToSeller, uint256 fee);
+    event RwaAutoReleased(bytes32 indexed listingId, uint256 amountToSeller, uint256 fee);
     event RwaRefunded(bytes32 indexed listingId, uint256 amount);
     event RwaDisputeOpened(bytes32 indexed listingId, address indexed openedBy);
     event RwaDisputeResolved(bytes32 indexed listingId, bool releasedToSeller);
@@ -67,11 +78,21 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
     event FeeBpsUpdated(uint256 feeBps);
     event FeeCollectorUpdated(address indexed feeCollector);
 
-    constructor(uint256 _feeBps, address _feeCollector) {
+    constructor(
+        uint256 _feeBps,
+        address _feeCollector,
+        uint256 _shipDeadline,
+        uint256 _disputeGrace,
+        uint256 _autoReleaseDeadline
+    ) {
         require(_feeBps <= MAX_FEE_BPS, "fee too high");
         require(_feeCollector != address(0), "zero feeCollector");
+        require(_disputeGrace < _autoReleaseDeadline, "dispute grace must end before auto-release");
         feeBps = _feeBps;
         feeCollector = _feeCollector;
+        SHIP_DEADLINE = _shipDeadline;
+        DISPUTE_GRACE = _disputeGrace;
+        AUTO_RELEASE_DEADLINE = _autoReleaseDeadline;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -115,6 +136,20 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
         o.status = Status.Completed;
         (uint256 toSeller, uint256 fee) = _payout(o, o.seller);
         emit RwaCompleted(listingId, toSeller, fee);
+    }
+
+    /// @notice Seller escape hatch when the buyer never confirms receipt. Permissionless (anyone
+    ///         can trigger it once the deadline passes, keeper-style) — pays out exactly like
+    ///         confirmReceived would have. Reuses Status.Completed rather than a new enum value
+    ///         so downstream status-based logic doesn't need to special-case this path; the
+    ///         RwaAutoReleased event (instead of RwaCompleted) is how a listener tells the two apart.
+    function claimShipmentTimeout(bytes32 listingId) external nonReentrant whenNotPaused {
+        RwaOrder storage o = orders[listingId];
+        require(o.status == Status.Shipped, "not shipped");
+        require(block.timestamp > o.shippedAt + AUTO_RELEASE_DEADLINE, "auto-release deadline not passed");
+        o.status = Status.Completed;
+        (uint256 toSeller, uint256 fee) = _payout(o, o.seller);
+        emit RwaAutoReleased(listingId, toSeller, fee);
     }
 
     /// @notice Buyer escape hatch when the seller never ships. Full refund, no fee taken.

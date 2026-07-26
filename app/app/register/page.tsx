@@ -9,15 +9,17 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { EmptyState } from '@/components/ui/empty-state'
-import { useMockKyc, useKycStatus } from '@/store/mock-kyc'
+import { useIsAuthorized } from '@/hooks/useOnChainRoles'
+import { useMyApplications, useSubmitApplication } from '@/hooks/useApplications'
 import { toastSuccess, toastError } from '@/lib/toast'
 
 const EMPTY_FORM = { fullName: '', idNumber: '', phone: '', email: '', address: '' }
 
 export default function RegisterPage() {
     const { address, isConnected } = useAccount()
-    const status = useKycStatus(address)
-    const submit = useMockKyc((s) => s.submit)
+    const isAuthorized = useIsAuthorized()
+    const { data: applications } = useMyApplications('authorize_rwa')
+    const submit = useSubmitApplication()
     const [form, setForm] = useState(EMPTY_FORM)
     const [docName, setDocName] = useState<string | undefined>()
 
@@ -32,22 +34,24 @@ export default function RegisterPage() {
         )
     }
 
-    if (status === 'pending') {
-        return (
-            <StatusScreen
-                icon={<Clock className="h-8 w-8 text-amber-500" />}
-                title="Verification in progress"
-                description="Your application is being reviewed. You'll be able to list on the marketplace once you're verified."
-            />
-        )
-    }
+    const latest = applications?.[0]
 
-    if (status === 'verified') {
+    if (isAuthorized) {
         return (
             <StatusScreen
                 icon={<ShieldCheck className="h-8 w-8 text-emerald-500" />}
                 title="You're a verified seller"
-                description="Your account passed KYC. You can list NFTs and RWA items on the marketplace."
+                description="Your wallet holds the Authorize role on-chain. You can list RWA items on the marketplace."
+            />
+        )
+    }
+
+    if (latest?.status === 'pending') {
+        return (
+            <StatusScreen
+                icon={<Clock className="h-8 w-8 text-amber-500" />}
+                title="Verification in progress"
+                description="Your application is being reviewed. You'll be able to list RWA items once an admin approves it on-chain."
             />
         )
     }
@@ -59,17 +63,18 @@ export default function RegisterPage() {
             <div>
                 <h1 className="text-2xl font-semibold tracking-tight">Seller Registration</h1>
                 <p className="mt-1 text-sm text-muted-foreground">
-                    Listing on the marketplace requires identity verification (KYC) for buyer
+                    Listing RWA items on the marketplace requires identity verification for buyer
                     safety. Your information is reviewed by the team and never shown publicly.
                 </p>
             </div>
 
-            {status === 'rejected' && (
+            {latest?.status === 'rejected' && (
                 <Card className="border-destructive/40 bg-destructive/5">
                     <CardContent className="flex items-center gap-2.5 p-4 text-sm">
                         <ShieldX className="h-4 w-4 shrink-0 text-destructive" />
-                        Your previous application was rejected. Please check your details and
-                        submit again.
+                        Your previous application was rejected
+                        {latest.reject_reason ? `: ${latest.reject_reason}` : '.'} Please check your
+                        details and submit again.
                     </CardContent>
                 </Card>
             )}
@@ -131,20 +136,24 @@ export default function RegisterPage() {
                     </div>
                     <Button
                         className="w-full"
-                        disabled={incomplete}
+                        disabled={incomplete || submit.isPending}
+                        isLoading={submit.isPending}
+                        loadingText="Submitting…"
                         onClick={() => {
                             if (!docName) {
                                 toastError('Please attach your ID document')
                                 return
                             }
-                            submit({
-                                wallet: address,
-                                ...form,
-                                idDocumentName: docName,
-                                status: 'pending',
-                                submittedAt: Date.now(),
-                            })
-                            toastSuccess('Application submitted for review (mock)')
+                            submit.mutate(
+                                {
+                                    kind: 'authorize_rwa',
+                                    payload: { ...form, idDocumentName: docName },
+                                },
+                                {
+                                    onSuccess: () => toastSuccess('Application submitted for review'),
+                                    onError: (err) => toastError(err.message),
+                                }
+                            )
                         }}
                     >
                         Submit for verification

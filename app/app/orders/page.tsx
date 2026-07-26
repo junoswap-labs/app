@@ -8,8 +8,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { useMockListings } from '@/store/mock-listings'
-import { useMockRwa } from '@/store/mock-rwa'
+import { useListings } from '@/hooks/useListings'
+import { useRwaListings } from '@/hooks/useRwaListings'
 import { optimizeImage } from '@/lib/image'
 import type { NftListing } from '@/types/marketplace'
 import type { RwaListing } from '@/types/rwa'
@@ -28,8 +28,8 @@ interface OrderRow {
 
 function nftRow(l: NftListing): OrderRow {
     return {
-        key: `nft-${l.contract}-${l.tokenId}`,
-        href: `/app/nft/${l.contract}-${l.tokenId}`,
+        key: `nft-${l.orderHash}`,
+        href: `/app/nft/${l.orderHash}`,
         kind: 'NFT',
         name: l.name,
         imageUrl: l.imageUrl,
@@ -56,8 +56,8 @@ function rwaRow(l: RwaListing): OrderRow {
 
 export default function OrdersPage() {
     const { address } = useAccount()
-    const nftListings = useMockListings((s) => s.listings)
-    const rwaListings = useMockRwa((s) => s.listings)
+    const nftListings = useListings({ search: '', status: 'all', sort: 'recent' })
+    const rwaListings = useRwaListings()
     const me = address?.toLowerCase()
 
     const purchases: OrderRow[] = me

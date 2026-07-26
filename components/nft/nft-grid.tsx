@@ -9,8 +9,13 @@ import type { ListingQuery } from '@/types/marketplace'
 
 const PAGE_SIZE = 8
 
-export function NftGrid() {
-    const [query, setQuery] = useState<ListingQuery>({ search: '', status: 'all', sort: 'recent' })
+interface NftGridProps {
+    /** Locks the grid to one collection — powers the per-collection browse page. */
+    contract?: `0x${string}`
+}
+
+export function NftGrid({ contract }: NftGridProps = {}) {
+    const [query, setQuery] = useState<ListingQuery>({ search: '', status: 'all', sort: 'recent', contract })
     const [count, setCount] = useState(PAGE_SIZE)
     const listings = useListings(query)
     const sentinelRef = useRef<HTMLDivElement>(null)

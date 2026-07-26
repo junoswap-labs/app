@@ -1,18 +1,20 @@
-// Client-side listing — shape matches an nft_orders row (+ denormalized name/imageUrl that the
-// optimization plan caches in the DB) so switching mock store → Supabase later barely touches the UI
+// Client-side listing shape — mapped from a real nft_orders row (hooks/useListings.ts's
+// mapNftOrderRow) into human-readable price/symbol so display components never touch base
+// units/token addresses directly; denormalized name/imageUrl are cached columns, no chain reads.
 export type ListingStatus = 'active' | 'sold'
 
 export interface NftListing {
+    /** NftMarketplace.sol's hashOrder(order) — the nft_orders primary key and route param. */
+    orderHash: `0x${string}`
     contract: `0x${string}`
     tokenId: string
-    price: string // human-readable amount e.g. "120.5" (mock; real data stores base units)
-    paymentToken: string // symbol e.g. "KKUB"
+    price: string // human-readable, already formatted by token decimals
+    paymentToken: string // symbol, e.g. "KKUB" — reverse-looked-up from the ERC20 address via lib/tokens.ts
     seller: `0x${string}`
     status: ListingStatus
     listedAt: number // epoch ms
-    buyer?: `0x${string}` // set on purchase (mock) — shown in My Orders
+    buyer?: `0x${string}`
     soldAt?: number
-    // denormalized metadata (like cached columns in nft_orders) — browse uses this, no chain reads
     name: string
     imageUrl: string | null
 }
@@ -23,4 +25,6 @@ export interface ListingQuery {
     search: string
     status: ListingStatus | 'all'
     sort: ListingSort
+    /** Restrict to one NFT contract — powers the per-collection browse page. */
+    contract?: `0x${string}`
 }

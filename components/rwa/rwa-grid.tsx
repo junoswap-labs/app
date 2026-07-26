@@ -5,10 +5,10 @@ import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { RwaCard } from '@/components/rwa/rwa-card'
-import { useMockRwa } from '@/store/mock-rwa'
+import { useRwaListings } from '@/hooks/useRwaListings'
 
 export function RwaGrid() {
-    const listings = useMockRwa((s) => s.listings).filter(
+    const listings = useRwaListings().filter(
         (l) => !['cancelled', 'refunded', 'resolved'].includes(l.status)
     )
 

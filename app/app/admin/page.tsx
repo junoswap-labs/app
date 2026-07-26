@@ -2,7 +2,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AnalyticsDashboard } from '@/components/admin/analytics-dashboard'
 import { DisputeQueueTable } from '@/components/admin/dispute-queue-table'
 import { RedemptionQueue } from '@/components/admin/redemption-queue'
-import { KycQueue } from '@/components/admin/kyc-queue'
+import { ApplicationQueue } from '@/components/admin/application-queue'
+import type { AuthorizeRwaPayload, PartnerApplicationPayload } from '@/types/applications'
 
 export default function AdminPage() {
     return (
@@ -13,7 +14,9 @@ export default function AdminPage() {
                     <TabsTrigger value="analytics">Analytics</TabsTrigger>
                     <TabsTrigger value="disputes">Disputes</TabsTrigger>
                     <TabsTrigger value="redemptions">Redemptions</TabsTrigger>
-                    <TabsTrigger value="kyc">KYC</TabsTrigger>
+                    <TabsTrigger value="authorize">Authorize (RWA)</TabsTrigger>
+                    <TabsTrigger value="partners-marketplace">Partners · Marketplace</TabsTrigger>
+                    <TabsTrigger value="partners-redeem">Partners · Redeem</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="analytics" className="mt-6">
@@ -28,8 +31,61 @@ export default function AdminPage() {
                     <RedemptionQueue />
                 </TabsContent>
 
-                <TabsContent value="kyc" className="mt-6">
-                    <KycQueue />
+                <TabsContent value="authorize" className="mt-6">
+                    <ApplicationQueue
+                        kind="authorize_rwa"
+                        title="Authorize"
+                        emptyDescription="Seller verification applications awaiting review will appear here."
+                        renderPayload={(application) => {
+                            const p = application.payload as AuthorizeRwaPayload
+                            return (
+                                <>
+                                    <p className="text-sm font-medium">{p.fullName}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        ID {p.idNumber} · {p.phone} · {p.email}
+                                        {p.idDocumentName && ` · Doc: ${p.idDocumentName}`}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">{p.address}</p>
+                                </>
+                            )
+                        }}
+                    />
+                </TabsContent>
+
+                <TabsContent value="partners-marketplace" className="mt-6">
+                    <ApplicationQueue
+                        kind="partner_marketplace"
+                        title="Marketplace partners"
+                        emptyDescription="Marketplace partner applications awaiting review will appear here."
+                        renderPayload={(application) => {
+                            const p = application.payload as PartnerApplicationPayload
+                            return (
+                                <>
+                                    <p className="text-sm font-medium">{p.companyName}</p>
+                                    <p className="text-xs text-muted-foreground">{p.contactEmail}</p>
+                                    <p className="text-xs text-muted-foreground">{p.pitch}</p>
+                                </>
+                            )
+                        }}
+                    />
+                </TabsContent>
+
+                <TabsContent value="partners-redeem" className="mt-6">
+                    <ApplicationQueue
+                        kind="partner_redeem"
+                        title="Redeem partners"
+                        emptyDescription="Redeem partner applications awaiting review will appear here."
+                        renderPayload={(application) => {
+                            const p = application.payload as PartnerApplicationPayload
+                            return (
+                                <>
+                                    <p className="text-sm font-medium">{p.companyName}</p>
+                                    <p className="text-xs text-muted-foreground">{p.contactEmail}</p>
+                                    <p className="text-xs text-muted-foreground">{p.pitch}</p>
+                                </>
+                            )
+                        }}
+                    />
                 </TabsContent>
             </Tabs>
         </div>

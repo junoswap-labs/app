@@ -8,11 +8,12 @@ import { ConnectButton } from '@/components/web3/connect-button'
 import { NetworkSwitcher } from '@/components/web3/network-switcher'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
-import { useIsAdmin } from '@/hooks/useCurrentUser'
+import { useIsAdmin } from '@/hooks/useOnChainRoles'
 import { cn } from '@/lib/utils'
 
 const NAV_LINKS = [
     { href: '/app', label: 'Marketplace', adminOnly: false },
+    { href: '/app/collections', label: 'Collections', adminOnly: false },
     { href: '/app/rebate', label: 'Rebate', adminOnly: false },
     { href: '/app/redeem', label: 'Redeem', adminOnly: false },
     { href: '/app/orders', label: 'Orders', adminOnly: false },

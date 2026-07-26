@@ -62,9 +62,8 @@ export interface AnalyticsResponse {
     selectedToken: string | null
 }
 
-export type UserRole = 'user' | 'admin' | 'arbitrator'
-
+// Admin/Partner/Authorize are NOT part of this response — they're read live from
+// PermissionRegistry.sol on-chain (see contracts/), not the session/DB. See hooks/useCurrentUser.ts.
 export interface MeResponse {
     wallet_address: string
-    role: UserRole
 }

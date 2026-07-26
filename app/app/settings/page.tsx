@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useAccount } from 'wagmi'
 import { ShieldCheck } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -11,20 +10,22 @@ import { Switch } from '@/components/ui/switch'
 import { GoogleLinkCard } from '@/components/settings/google-link-card'
 import { TelegramLinkCard } from '@/components/settings/telegram-link-card'
 import { useMockSettings } from '@/store/mock-settings'
-import { useKycStatus } from '@/store/mock-kyc'
-import type { KycStatus } from '@/types/kyc'
-
-const KYC_BADGE: Record<KycStatus, { label: string; variant: 'secondary' | 'outline' }> = {
-    unverified: { label: 'Not registered', variant: 'outline' },
-    pending: { label: 'Under review', variant: 'secondary' },
-    verified: { label: 'Verified seller', variant: 'secondary' },
-    rejected: { label: 'Rejected', variant: 'outline' },
-}
+import { useIsAuthorized } from '@/hooks/useOnChainRoles'
+import { useMyApplications } from '@/hooks/useApplications'
 
 export default function SettingsPage() {
-    const { address } = useAccount()
-    const kycStatus = useKycStatus(address)
+    const isAuthorized = useIsAuthorized()
+    const { data: applications } = useMyApplications('authorize_rwa')
     const { notifyNewOffer, notifyDeadline, setNotify } = useMockSettings()
+
+    const latest = applications?.[0]
+    const sellerBadge = isAuthorized
+        ? { label: 'Verified seller', variant: 'secondary' as const }
+        : latest?.status === 'pending'
+          ? { label: 'Under review', variant: 'secondary' as const }
+          : latest?.status === 'rejected'
+            ? { label: 'Rejected', variant: 'outline' as const }
+            : { label: 'Not registered', variant: 'outline' as const }
 
     return (
         <div className="mx-auto max-w-2xl space-y-6 px-4 py-8 sm:px-6">
@@ -50,10 +51,8 @@ export default function SettingsPage() {
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Badge variant={KYC_BADGE[kycStatus].variant}>
-                                {KYC_BADGE[kycStatus].label}
-                            </Badge>
-                            {kycStatus !== 'verified' && kycStatus !== 'pending' && (
+                            <Badge variant={sellerBadge.variant}>{sellerBadge.label}</Badge>
+                            {!isAuthorized && latest?.status !== 'pending' && (
                                 <Button size="sm" asChild>
                                     <Link href="/app/register">Register</Link>
                                 </Button>

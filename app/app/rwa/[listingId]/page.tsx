@@ -2,7 +2,8 @@
 
 import { use, useState } from 'react'
 import Link from 'next/link'
-import { useAccount } from 'wagmi'
+import { useAccount, useChainId } from 'wagmi'
+import { parseUnits } from 'viem'
 import { ArrowLeft, ImageOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -10,16 +11,25 @@ import { Separator } from '@/components/ui/separator'
 import { EmptyState } from '@/components/ui/empty-state'
 import { OrderStatusTracker } from '@/components/rwa/order-status-tracker'
 import { DeadlineCountdown } from '@/components/rwa/ship-deadline-countdown'
-import { useMockRwa } from '@/store/mock-rwa'
+import { useRwaListing } from '@/hooks/useRwaListings'
+import {
+    useFundRwaOrder,
+    useMarkShipped,
+    useConfirmReceived,
+    useClaimRefund,
+    useOpenDispute,
+    useClaimShipmentTimeout,
+} from '@/hooks/useRwaActions'
+import { useCancelRwaListing } from '@/hooks/useCancelRwaListing'
 import { canPerform, roleFor } from '@/services/marketplace/rwa-order'
 import { feeBreakdown } from '@/services/marketplace/fee'
-import { mockTx } from '@/lib/mock/tx'
+import { findPaymentToken } from '@/lib/tokens'
 import { toastSuccess, toastError } from '@/lib/toast'
 import {
     SHIP_DEADLINE_MS,
-    RECEIVE_DEADLINE_MS,
+    DISPUTE_GRACE_MS,
+    AUTO_RELEASE_DEADLINE_MS,
     type RwaAction,
-    type RwaListing,
 } from '@/types/rwa'
 
 export default function RwaListingDetailPage({
@@ -29,8 +39,16 @@ export default function RwaListingDetailPage({
 }) {
     const { listingId } = use(params)
     const { address, isConnected } = useAccount()
-    const listing = useMockRwa((s) => s.listings.find((l) => l.id === listingId))
-    const update = useMockRwa((s) => s.update)
+    const chainId = useChainId()
+    const listing = useRwaListing(decodeURIComponent(listingId))
+
+    const fund = useFundRwaOrder()
+    const markShipped = useMarkShipped()
+    const confirmReceived = useConfirmReceived()
+    const claimRefund = useClaimRefund()
+    const openDispute = useOpenDispute()
+    const claimShipmentTimeout = useClaimShipmentTimeout()
+    const cancelListing = useCancelRwaListing()
     const [pendingAction, setPendingAction] = useState<RwaAction | null>(null)
 
     if (!listing) {
@@ -52,23 +70,57 @@ export default function RwaListingDetailPage({
     const role = roleFor(listing, address)
     const fees = feeBreakdown(listing.price)
 
-    // MOCK: applies the state change the sync poller would write after the real tx.
-    const run = async (action: RwaAction, patch: Partial<RwaListing>, doneMsg: string) => {
+    const run = async (action: RwaAction, doneMsg: string) => {
         if (!isConnected || !address) {
             toastError('Please connect your wallet first')
             return
         }
         setPendingAction(action)
-        await mockTx()
-        update(listing.id, patch)
-        setPendingAction(null)
-        toastSuccess(`${doneMsg} (mock)`)
+        try {
+            switch (action) {
+                case 'fund': {
+                    const token = findPaymentToken(chainId, listing.paymentTokenAddress)
+                    if (!token) throw new Error('unknown payment token for this chain')
+                    await fund.fundAsync(
+                        listing.id as `0x${string}`,
+                        listing.seller,
+                        listing.paymentTokenAddress,
+                        parseUnits(listing.price, token.decimals)
+                    )
+                    break
+                }
+                case 'markShipped':
+                    await markShipped.markShippedAsync(listing.id as `0x${string}`)
+                    break
+                case 'confirmReceived':
+                    await confirmReceived.confirmReceivedAsync(listing.id as `0x${string}`)
+                    break
+                case 'claimRefund':
+                    await claimRefund.claimRefundAsync(listing.id as `0x${string}`)
+                    break
+                case 'openDispute':
+                    await openDispute.openDisputeAsync(listing.id as `0x${string}`)
+                    break
+                case 'claimShipmentTimeout':
+                    await claimShipmentTimeout.claimShipmentTimeoutAsync(listing.id as `0x${string}`)
+                    break
+                case 'cancel':
+                    await cancelListing.mutateAsync(listing.id)
+                    break
+                default:
+                    return
+            }
+            toastSuccess(doneMsg)
+        } catch (err) {
+            toastError(err instanceof Error ? err.message : 'Transaction failed')
+        } finally {
+            setPendingAction(null)
+        }
     }
 
     const actionButton = (
         action: RwaAction,
         label: string,
-        patch: Partial<RwaListing>,
         doneMsg: string,
         variant: 'default' | 'outline' | 'destructive' = 'default'
     ) =>
@@ -79,7 +131,7 @@ export default function RwaListingDetailPage({
                 isLoading={pendingAction === action}
                 loadingText="Confirming on-chain…"
                 disabled={pendingAction !== null}
-                onClick={() => run(action, patch, doneMsg)}
+                onClick={() => run(action, doneMsg)}
             >
                 {label}
             </Button>
@@ -133,8 +185,14 @@ export default function RwaListingDetailPage({
                             )}
                             {listing.status === 'shipped' && listing.shippedAt && (
                                 <DeadlineCountdown
-                                    deadline={listing.shippedAt + RECEIVE_DEADLINE_MS}
+                                    deadline={listing.shippedAt + DISPUTE_GRACE_MS}
                                     label="Dispute window opens"
+                                />
+                            )}
+                            {listing.status === 'shipped' && listing.shippedAt && (
+                                <DeadlineCountdown
+                                    deadline={listing.shippedAt + AUTO_RELEASE_DEADLINE_MS}
+                                    label="Auto-release to seller if not confirmed"
                                 />
                             )}
                         </CardContent>
@@ -158,50 +216,24 @@ export default function RwaListingDetailPage({
                     <Separator />
 
                     <div className="flex flex-wrap gap-2">
+                        {actionButton('fund', `Buy — escrow ${listing.price} ${listing.paymentToken}`, 'Payment escrowed')}
+                        {actionButton('cancel', 'Cancel listing', 'Listing cancelled', 'outline')}
+                        {actionButton('markShipped', 'Mark as shipped', 'Marked shipped')}
+                        {actionButton('confirmReceived', 'Confirm received', 'Escrow released to seller')}
+                        {actionButton('claimRefund', 'Claim refund', 'Escrow refunded', 'destructive')}
+                        {actionButton('openDispute', 'Open dispute', 'Dispute opened', 'destructive')}
                         {actionButton(
-                            'fund',
-                            `Buy — escrow ${listing.price} ${listing.paymentToken}`,
-                            { status: 'funded', buyer: address, fundedAt: Date.now() },
-                            'Payment escrowed'
-                        )}
-                        {actionButton(
-                            'cancel',
-                            'Cancel listing',
-                            { status: 'cancelled' },
-                            'Listing cancelled',
+                            'claimShipmentTimeout',
+                            'Claim auto-release',
+                            'Escrow auto-released to seller',
                             'outline'
-                        )}
-                        {actionButton(
-                            'markShipped',
-                            'Mark as shipped',
-                            { status: 'shipped', shippedAt: Date.now() },
-                            'Marked shipped'
-                        )}
-                        {actionButton(
-                            'confirmReceived',
-                            'Confirm received',
-                            { status: 'completed' },
-                            'Escrow released to seller'
-                        )}
-                        {actionButton(
-                            'claimRefund',
-                            'Claim refund',
-                            { status: 'refunded' },
-                            'Escrow refunded',
-                            'destructive'
-                        )}
-                        {actionButton(
-                            'openDispute',
-                            'Open dispute',
-                            { status: 'disputed' },
-                            'Dispute opened',
-                            'destructive'
                         )}
                     </div>
 
                     {role === 'other' && listing.status !== 'listed' && (
                         <p className="text-xs text-muted-foreground">
-                            Only the buyer or seller of this order can act on it.
+                            Only the buyer or seller of this order can act on it — auto-release is
+                            the exception, anyone can trigger it once the deadline passes.
                         </p>
                     )}
                 </div>

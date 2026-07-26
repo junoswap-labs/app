@@ -4,24 +4,29 @@
 
 Junoswap Marketplace — NFT and Real-World-Asset (RWA) trading platform, paid in ERC20 tokens, on Bitkub Chain (kub, chainId 96 mainnet / 25925 testnet) only. Brand/design forked from `junoswap` but a fully separate codebase and deployment (`marketplace.junoswap.trade`). **Never modify the `junoswap` repo** — this repo only copies from it, one-way.
 
-Planning docs: `Docs/frontend-plan.md`, `Docs/backend-plan.md`, `Docs/smartcontract-plan.md`. ABI names, endpoint paths, and Supabase column names must match across all three exactly.
+Current active development scope: **Marketplace** (NFT + RWA trading) and **Redeem** (Points + ERC20 → NFT/merch). Adjacent features already scaffolded in this repo — Rebate/staking, Launchpad creator-fee, KYC, admin analytics — share the same stack but aren't part of this scope.
+
+**The frontend UI is built; the backend/on-chain wiring is not.** Every stateful action today runs on Zustand mock stores (`store/mock-*.ts`) plus a fake `mockTx()` delay standing in for real transactions — there is no `app/api/*` directory, no Supabase client anywhere in the code, and the Supabase migrations that do exist reference tables no migration creates. See `docs/Marketplace_Redeem_Feature.md` for the full current-state reference (gitignored under `/Docs` in `.gitignore`, not committed — local reference only, regenerate/update it by hand as the code changes). Don't assume ABI names, endpoint paths, or Supabase columns exist just because a comment or an older doc references them — verify against actual files first.
 
 ## Directory map
 
-app/                       Next.js App Router pages — `app/marketplace/` is the actual product, `app/page.tsx` just redirects there
-components/marketplace/    Shell (header/nav)
-components/nft/            nft-card, list-nft-dialog, buy-nft-dialog
-components/rwa/            rwa-card, list-rwa-dialog, order-status-tracker, ship-deadline-countdown, dispute-dialog
+app/                       Next.js App Router — the real product lives under `app/app/*` (URL prefix `/app/*`: `/app`, `/app/nft/list`, `/app/nft/[orderHash]`, `/app/rwa/list`, `/app/rwa/[listingId]`, `/app/orders`, `/app/redeem`, `/app/redeem/orders`, `/app/admin`, `/app/settings`). `app/marketplace/*` is a **legacy redirect-only shim** (every page.tsx is `redirect('/app/...')`). `app/page.tsx` redirects to `/app`. `app/launchpad/creator-fee/` is a separate feature, out of scope here. **No `app/api/*` route handlers exist anywhere yet.**
+components/marketplace/    Shell — header.tsx only
+components/nft/            nft-card, nft-grid, listing-toolbar, buy-nft-dialog (listing happens on the /app/nft/list page directly, no separate list dialog)
+components/rwa/            rwa-card, rwa-grid, order-status-tracker, ship-deadline-countdown (dispute UI is inline in these, not a separate dialog)
+components/redeem/         redeem-dialog, redeem-item-card, redemption-status-tracker
 components/settings/       google-link-card, telegram-link-card
-components/admin/          dispute-queue-table, resolve-dispute-dialog
+components/admin/          dispute-queue-table, redemption-queue, kyc-queue, analytics-dashboard
+components/kyc/, components/rebate/, components/launchpad/   Adjacent features (out of Marketplace/Redeem scope)
 components/ui/, components/web3/   Forked verbatim (or lightly trimmed) from junoswap — see "Forked from junoswap" below
-hooks/                     wagmi-only — useListNftOrder, useFulfillNftOrder, useFundRwaOrder, useMarkShipped, useConfirmReceived, useClaimRefund, useOpenDispute, useResolveDispute, useSyncRefresh
-services/marketplace/      Pure logic, no React — nft-order.ts (EIP-712 payload), rwa-order.ts (client-side state-machine guard for UX only), fee.ts
-store/                     Zustand — UI state only (filters/sort/dialogs). **Never order/escrow status** — that always comes from the server.
-lib/                       wagmi.ts, eip712.ts, supabase-client.ts (anon key, public reads only), abis/, explorer.ts, toast.ts, utils.ts
-types/                     marketplace.ts (NftOrderRow), rwa.ts (RwaOrderRow, RwaStatus)
-contracts/                 Foundry Solidity project — git submodule (NFT marketplace + RWA escrow)
-Docs/                      Planning docs (frontend/backend/smartcontract plans)
+hooks/                     useListings.ts, useNftMetadata.ts (Marketplace) · useCurrentUser.ts, useAnalytics.ts (shared) · useClaimCreatorFee.ts, useCreatorFeeClaims.ts (Launchpad). Today these are mostly thin wrappers over the mock stores below — **no wagmi write hooks exist yet** (no useListNftOrder/useFulfillNftOrder/useFundRwaOrder/etc., no useSyncRefresh — those are target-design names from an earlier draft of this file, not real code).
+services/marketplace/      Pure logic, no React, all real (not mock) — fee.ts, listing-query.ts, nft-metadata.ts (tokenURI/IPFS resolution, the one fully-real on-chain-reading path), rwa-order.ts (client-side state-machine guard for UX only, mirrors RwaEscrow.sol exactly) · creator-fee/ (Launchpad, real + tested, out of scope). No EIP-712 signing helper (`nft-order.ts`) exists yet.
+store/                     Zustand + `persist` (→ localStorage) — mock-listings.ts, mock-rwa.ts, mock-redemptions.ts, etc. Every file opens with an explicit `// MOCK only` comment. **This is a temporary stand-in, not the permanent architecture** — once real, order/escrow status must never be trusted from a client write again (see "Clean workflow" below).
+lib/                       wagmi.ts, ipfs.ts, nft-collections.ts, nft-metadata-cache.ts, explorer.ts, toast.ts, utils.ts, image.ts, abis/ (only erc721.ts + creator-fee-distributor.ts exist — **no marketplace/RWA-escrow ABI yet**), mock/ (tx.ts — the `mockTx()` stand-in for writeContract — plus redeem.ts, rebate.ts). No eip712.ts, no supabase-client.ts.
+types/                     marketplace.ts (NftListing), rwa.ts (RwaListing, RwaStatus), redeem.ts (RedeemItem, RedemptionOrder, RedemptionStatus), nft.ts, plus kyc.ts/rebate.ts/analytics.ts/creator-fee.ts/web3.ts for adjacent features
+contracts/                 Foundry Solidity project, tracked directly in this repo (**not** a git submodule) — NftMarketplace.sol (gasless EIP-712 signed orders), RwaEscrow.sol (custodial escrow, fund→ship→confirm + refund/dispute), CreatorFeeDistributor.sol (Launchpad). None are deployed yet; no deploy script exists for the first two.
+supabase/migrations/       0002-0004 exist but reference base tables (`users`, `nft_orders`, `rwa_orders`, `rwa_listings`) that **no migration creates** — the schema is incomplete even on paper. No `redemptions` table exists for Redeem at all.
+docs/                      `Marketplace_Redeem_Feature.md` — current-state reference doc for Marketplace + Redeem (gitignored via `/Docs` in `.gitignore`, Windows filesystem makes `docs/`/`Docs/` the same dir — not committed, keep it updated by hand).
 
 ## Key conventions
 
@@ -31,6 +36,8 @@ Docs/                      Planning docs (frontend/backend/smartcontract plans)
 - Comments: comment only genuinely complex or non-obvious code — the *why*, gotchas, workarounds, magic-value/address decoders, sign conventions, contract-ABI correspondences, and math derivations. Do NOT add section-divider banners, one-word grouping labels, JSDoc that restates the function/type name, or inline narration of self-evident code.
 
 ## Clean workflow — the rule that governs this whole repo
+
+**Target design — not implemented yet.** No sync poller, no `/api/sync/refresh`, no Supabase client exist today; every action currently mutates a local Zustand mock store directly (see `store/` above). This section describes how it must work once the backend is real — follow it for any new code that replaces a mock, don't assume the infrastructure it describes already exists.
 
 Order/escrow status is **never** trusted from a client write or asserted client-side after a tx confirms. The lightweight on-chain sync poller (custom `getLogs` polling, not an indexer framework) is the only writer of status columns in Supabase. After any `writeContract` call:
 
@@ -48,4 +55,3 @@ Client-side checks in `services/marketplace/*-order.ts` (e.g. disabling a button
 ## Notes
 
 - **kub mainnet/testnet RPC** (`rpc.bitkubchain.io`) is NOT a full archive node. Historical `eth_call` reads fail with "missing trie node".
-- `public/chains/kubchain.png` (chain icon used by `NetworkSwitcher`) still needs to be copied over from junoswap's `public/` folder — binary copy wasn't possible in the environment this scaffold was built in. Copy it manually before the icon will render.

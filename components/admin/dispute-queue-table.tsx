@@ -5,24 +5,23 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { useMockRwa } from '@/store/mock-rwa'
-import { mockTx } from '@/lib/mock/tx'
-import { toastSuccess } from '@/lib/toast'
+import { useRwaListings } from '@/hooks/useRwaListings'
+import { useResolveDispute } from '@/hooks/useRwaActions'
+import { toastSuccess, toastError } from '@/lib/toast'
 
 function shortAddr(addr?: string) {
     return addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '—'
 }
 
-// Arbitrator queue — real flow: resolveDispute(listingId, releaseToSeller) on-chain,
-// gated by ARBITRATOR_ROLE (client check is UX only; the contract enforces it).
+// Arbitrator queue — resolveDispute(listingId, releaseToSeller) on-chain, gated by
+// ARBITRATOR_ROLE (this component's own gating is UX only; the contract enforces it for real —
+// a non-arbitrator's tx would simply revert).
 export function DisputeQueueTable() {
-    const listings = useMockRwa((s) => s.listings)
-    const update = useMockRwa((s) => s.update)
+    const listings = useRwaListings().filter((l) => l.status === 'disputed')
+    const resolveDispute = useResolveDispute()
     const [busyId, setBusyId] = useState<string | null>(null)
 
-    const disputed = listings.filter((l) => l.status === 'disputed')
-
-    if (disputed.length === 0) {
+    if (listings.length === 0) {
         return (
             <EmptyState
                 title="No open disputes"
@@ -33,17 +32,19 @@ export function DisputeQueueTable() {
 
     const resolve = async (id: string, releaseToSeller: boolean) => {
         setBusyId(id)
-        await mockTx()
-        update(id, { status: 'resolved', resolvedToSeller: releaseToSeller })
-        setBusyId(null)
-        toastSuccess(
-            releaseToSeller ? 'Escrow released to seller (mock)' : 'Escrow refunded to buyer (mock)'
-        )
+        try {
+            await resolveDispute.resolveDisputeAsync(id as `0x${string}`, releaseToSeller)
+            toastSuccess(releaseToSeller ? 'Escrow released to seller' : 'Escrow refunded to buyer')
+        } catch (err) {
+            toastError(err instanceof Error ? err.message : 'Resolution failed')
+        } finally {
+            setBusyId(null)
+        }
     }
 
     return (
         <div className="space-y-3">
-            {disputed.map((l) => (
+            {listings.map((l) => (
                 <Card key={l.id}>
                     <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                         <div className="space-y-1">

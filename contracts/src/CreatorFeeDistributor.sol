@@ -17,8 +17,9 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 /// @dev The reward math and Merkle tree are built off-chain (settlement job) from the
 ///      junoswap indexer's per-creator fee data — this contract only escrows the payout
 ///      token and verifies proofs. Leaves use the OpenZeppelin StandardMerkleTree encoding
-///      (double-hashed abi.encode(account, amount)); build the tree with
-///      `@openzeppelin/merkle-tree` so proofs verify against `MerkleProof.verify` here.
+///      (double-hashed abi.encode(account, amount)); build the tree with OpenZeppelin's
+///      `merkle-tree` npm package (org-scoped as openzeppelin/merkle-tree) so proofs verify
+///      against `MerkleProof.verify` here.
 contract CreatorFeeDistributor is AccessControl, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 

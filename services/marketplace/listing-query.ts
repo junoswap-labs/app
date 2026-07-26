@@ -6,6 +6,7 @@ export function queryListings(listings: NftListing[], q: ListingQuery): NftListi
 
     const filtered = listings.filter((l) => {
         if (q.status !== 'all' && l.status !== q.status) return false
+        if (q.contract && l.contract.toLowerCase() !== q.contract.toLowerCase()) return false
         if (search && !l.name.toLowerCase().includes(search) && !l.tokenId.includes(search))
             return false
         return true

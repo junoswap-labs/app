@@ -5,9 +5,8 @@ import { useAccount } from 'wagmi'
 import type { MeResponse } from '@/types/analytics'
 
 /**
- * Current user's role (from the server-side session, never a client-set value).
- * Used only to gate *visibility* of admin features — real security is always enforced
- * server/contract-side. Fetch failure / missing endpoint → treated as non-admin (safe default = hidden).
+ * Current session's wallet (verified server-side via SIWE, never a client-set value).
+ * Fetch failure / no session → null.
  */
 export function useCurrentUser() {
     const { address, isConnected } = useAccount()
@@ -21,9 +20,4 @@ export function useCurrentUser() {
             return res.json()
         },
     })
-}
-
-export function useIsAdmin() {
-    const { data } = useCurrentUser()
-    return data?.role === 'admin' || data?.role === 'arbitrator'
 }

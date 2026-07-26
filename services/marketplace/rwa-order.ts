@@ -1,6 +1,7 @@
 import {
     SHIP_DEADLINE_MS,
-    RECEIVE_DEADLINE_MS,
+    DISPUTE_GRACE_MS,
+    AUTO_RELEASE_DEADLINE_MS,
     type RwaAction,
     type RwaListing,
 } from '@/types/rwa'
@@ -46,15 +47,24 @@ export function canPerform(
                 now >= listing.fundedAt + SHIP_DEADLINE_MS
             )
         case 'openDispute':
-            // receive deadline passed while shipped — either party may escalate
+            // Dispute grace passed while shipped — either party may escalate. Must still be
+            // before AUTO_RELEASE_DEADLINE_MS or claimShipmentTimeout may have already fired
+            // (contract enforces this for real; this is just the UX-side mirror).
             return (
                 listing.status === 'shipped' &&
                 (role === 'buyer' || role === 'seller') &&
                 listing.shippedAt !== undefined &&
-                now >= listing.shippedAt + RECEIVE_DEADLINE_MS
+                now >= listing.shippedAt + DISPUTE_GRACE_MS
             )
         case 'resolveDispute':
             return listing.status === 'disputed' && role === 'arbitrator'
+        case 'claimShipmentTimeout':
+            // Permissionless once the deadline passes — anyone can trigger it, not just buyer/seller.
+            return (
+                listing.status === 'shipped' &&
+                listing.shippedAt !== undefined &&
+                now >= listing.shippedAt + AUTO_RELEASE_DEADLINE_MS
+            )
         default:
             return false
     }

@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use } from 'react'
 import Link from 'next/link'
 import { useAccount } from 'wagmi'
 import { ArrowLeft, BadgeCheck, ImageOff } from 'lucide-react'
@@ -9,20 +9,11 @@ import { Separator } from '@/components/ui/separator'
 import { EmptyState } from '@/components/ui/empty-state'
 import { BuyNftDialog } from '@/components/nft/buy-nft-dialog'
 import { useListing } from '@/hooks/useListings'
-import { useMockListings } from '@/store/mock-listings'
-import { getCollectionConfig } from '@/lib/nft-collections'
+import { useCancelNftOrder } from '@/hooks/useCancelNftOrder'
+import { useCollectionConfig } from '@/hooks/useCollections'
 import { feeBreakdown } from '@/services/marketplace/fee'
 import { optimizeImage } from '@/lib/image'
-import { mockTx } from '@/lib/mock/tx'
-import { toastSuccess } from '@/lib/toast'
-
-// Route param is a composite `${contract}-${tokenId}` for now — it becomes the real
-// EIP-712 orderHash once orders live in Supabase, so the route shape won't change.
-function parseOrderHash(orderHash: string): { contract: string; tokenId: string } | null {
-    const sep = orderHash.lastIndexOf('-')
-    if (sep <= 0) return null
-    return { contract: orderHash.slice(0, sep), tokenId: orderHash.slice(sep + 1) }
-}
+import { toastSuccess, toastError } from '@/lib/toast'
 
 export default function NftOrderDetailPage({
     params,
@@ -30,13 +21,12 @@ export default function NftOrderDetailPage({
     params: Promise<{ orderHash: string }>
 }) {
     const { orderHash } = use(params)
-    const parsed = parseOrderHash(decodeURIComponent(orderHash))
     const { address } = useAccount()
-    const listing = useListing(parsed?.contract ?? '', parsed?.tokenId ?? '')
-    const removeListing = useMockListings((s) => s.removeListing)
-    const [cancelling, setCancelling] = useState(false)
+    const listing = useListing(decodeURIComponent(orderHash))
+    const cancelOrder = useCancelNftOrder()
+    const { data: config } = useCollectionConfig(listing?.contract)
 
-    if (!parsed || !listing) {
+    if (!listing) {
         return (
             <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
                 <EmptyState
@@ -52,7 +42,7 @@ export default function NftOrderDetailPage({
         )
     }
 
-    const verified = getCollectionConfig(listing.contract)?.verified ?? false
+    const verified = config?.verified ?? false
     const isSeller = address?.toLowerCase() === listing.seller.toLowerCase()
     const fees = feeBreakdown(listing.price)
 
@@ -130,15 +120,15 @@ export default function NftOrderDetailPage({
                         <Button
                             variant="outline"
                             className="w-full"
-                            isLoading={cancelling}
+                            isLoading={cancelOrder.isPending}
                             loadingText="Confirming on-chain…"
                             onClick={async () => {
-                                // MOCK: real flow is an on-chain cancelOrder() tx → sync refresh
-                                setCancelling(true)
-                                await mockTx()
-                                removeListing(listing.contract, listing.tokenId)
-                                setCancelling(false)
-                                toastSuccess('Listing cancelled (mock)')
+                                try {
+                                    await cancelOrder.mutateAsync(listing.orderHash)
+                                    toastSuccess('Listing cancelled')
+                                } catch (err) {
+                                    toastError(err instanceof Error ? err.message : 'Cancel failed')
+                                }
                             }}
                         >
                             Cancel listing
