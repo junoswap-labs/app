@@ -3,6 +3,7 @@ import { AnalyticsDashboard } from '@/components/admin/analytics-dashboard'
 import { DisputeQueueTable } from '@/components/admin/dispute-queue-table'
 import { RedemptionQueue } from '@/components/admin/redemption-queue'
 import { ApplicationQueue } from '@/components/admin/application-queue'
+import { MarketplaceSettings } from '@/components/admin/marketplace-settings'
 import type { AuthorizeRwaPayload, PartnerApplicationPayload } from '@/types/applications'
 
 export default function AdminPage() {
@@ -17,6 +18,7 @@ export default function AdminPage() {
                     <TabsTrigger value="authorize">Authorize (RWA)</TabsTrigger>
                     <TabsTrigger value="partners-marketplace">Partners · Marketplace</TabsTrigger>
                     <TabsTrigger value="partners-redeem">Partners · Redeem</TabsTrigger>
+                    <TabsTrigger value="settings">Settings</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="analytics" className="mt-6">
@@ -86,6 +88,10 @@ export default function AdminPage() {
                             )
                         }}
                     />
+                </TabsContent>
+
+                <TabsContent value="settings" className="mt-6">
+                    <MarketplaceSettings />
                 </TabsContent>
             </Tabs>
         </div>

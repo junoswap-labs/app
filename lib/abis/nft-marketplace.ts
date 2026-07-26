@@ -66,3 +66,47 @@ export const nftMarketplaceAbi = [
         outputs: [{ type: 'bool' }],
     },
 ] as const
+
+// Admin-only slice — used by the Admin Settings panel (components/admin/marketplace-settings.tsx).
+// Ownable2Step's owner() is a DIFFERENT admin concept from PermissionRegistry's Admin role — the
+// UI checks both, since a PermissionRegistry admin isn't necessarily this contract's owner.
+export const nftMarketplaceAdminAbi = [
+    { type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+    { type: 'function', name: 'paused', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool' }] },
+    { type: 'function', name: 'feeBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+    { type: 'function', name: 'feeCollector', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+    { type: 'function', name: 'MAX_FEE_BPS', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+    {
+        type: 'function',
+        name: 'allowedPaymentTokens',
+        stateMutability: 'view',
+        inputs: [{ name: '', type: 'address' }],
+        outputs: [{ type: 'bool' }],
+    },
+    {
+        type: 'function',
+        name: 'setFeeBps',
+        stateMutability: 'nonpayable',
+        inputs: [{ name: 'bps', type: 'uint256' }],
+        outputs: [],
+    },
+    {
+        type: 'function',
+        name: 'setFeeCollector',
+        stateMutability: 'nonpayable',
+        inputs: [{ name: 'collector', type: 'address' }],
+        outputs: [],
+    },
+    {
+        type: 'function',
+        name: 'setAllowedPaymentToken',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'token', type: 'address' },
+            { name: 'allowed', type: 'bool' },
+        ],
+        outputs: [],
+    },
+    { type: 'function', name: 'pause', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+    { type: 'function', name: 'unpause', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+] as const

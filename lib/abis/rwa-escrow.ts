@@ -180,3 +180,77 @@ export const rwaEscrowAbi = [
         outputs: [{ type: 'bool' }],
     },
 ] as const
+
+// Admin-only slice — used by the Admin Settings panel. AccessControl's DEFAULT_ADMIN_ROLE (read
+// via hasRole above) is a DIFFERENT admin concept from PermissionRegistry's Admin role — the UI
+// checks both, since a PermissionRegistry admin isn't necessarily this contract's admin.
+export const rwaEscrowAdminAbi = [
+    {
+        type: 'function',
+        name: 'DEFAULT_ADMIN_ROLE',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ type: 'bytes32' }],
+    },
+    { type: 'function', name: 'ARBITRATOR_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
+    {
+        type: 'function',
+        name: 'hasRole',
+        stateMutability: 'view',
+        inputs: [
+            { name: 'role', type: 'bytes32' },
+            { name: 'account', type: 'address' },
+        ],
+        outputs: [{ type: 'bool' }],
+    },
+    { type: 'function', name: 'paused', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool' }] },
+    { type: 'function', name: 'feeBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+    { type: 'function', name: 'feeCollector', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
+    { type: 'function', name: 'MAX_FEE_BPS', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+    {
+        type: 'function',
+        name: 'setFeeBps',
+        stateMutability: 'nonpayable',
+        inputs: [{ name: 'bps', type: 'uint256' }],
+        outputs: [],
+    },
+    {
+        type: 'function',
+        name: 'setFeeCollector',
+        stateMutability: 'nonpayable',
+        inputs: [{ name: 'collector', type: 'address' }],
+        outputs: [],
+    },
+    {
+        type: 'function',
+        name: 'setAllowedPaymentToken',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'token', type: 'address' },
+            { name: 'allowed', type: 'bool' },
+        ],
+        outputs: [],
+    },
+    { type: 'function', name: 'pause', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+    { type: 'function', name: 'unpause', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+    {
+        type: 'function',
+        name: 'grantRole',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'role', type: 'bytes32' },
+            { name: 'account', type: 'address' },
+        ],
+        outputs: [],
+    },
+    {
+        type: 'function',
+        name: 'revokeRole',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'role', type: 'bytes32' },
+            { name: 'account', type: 'address' },
+        ],
+        outputs: [],
+    },
+] as const
