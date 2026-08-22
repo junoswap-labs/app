@@ -1,6 +1,12 @@
+'use client'
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AnalyticsDashboard } from '@/components/admin/analytics-dashboard'
 import { DisputeQueueTable } from '@/components/admin/dispute-queue-table'
+import { AirdropModeration } from '@/components/admin/airdrop-moderation'
+import { AdminRoles } from '@/components/admin/admin-roles'
+import { ReportQueue } from '@/components/admin/report-queue'
+import { SystemPanel } from '@/components/admin/system-panel'
 import { RedemptionQueue } from '@/components/admin/redemption-queue'
 import { ApplicationQueue } from '@/components/admin/application-queue'
 import { MarketplaceSettings } from '@/components/admin/marketplace-settings'
@@ -18,6 +24,10 @@ export default function AdminPage() {
                     <TabsTrigger value="authorize">Authorize (RWA)</TabsTrigger>
                     <TabsTrigger value="partners-marketplace">Partners · Marketplace</TabsTrigger>
                     <TabsTrigger value="partners-redeem">Partners · Redeem</TabsTrigger>
+                    <TabsTrigger value="airdrops">Airdrops</TabsTrigger>
+                    <TabsTrigger value="reports">Reports</TabsTrigger>
+                    <TabsTrigger value="admins">Admins</TabsTrigger>
+                    <TabsTrigger value="system">System</TabsTrigger>
                     <TabsTrigger value="settings">Settings</TabsTrigger>
                 </TabsList>
 
@@ -88,6 +98,22 @@ export default function AdminPage() {
                             )
                         }}
                     />
+                </TabsContent>
+
+                <TabsContent value="airdrops" className="mt-6">
+                    <AirdropModeration />
+                </TabsContent>
+
+                <TabsContent value="reports" className="mt-6">
+                    <ReportQueue />
+                </TabsContent>
+
+                <TabsContent value="system" className="mt-6">
+                    <SystemPanel />
+                </TabsContent>
+
+                <TabsContent value="admins" className="mt-6">
+                    <AdminRoles />
                 </TabsContent>
 
                 <TabsContent value="settings" className="mt-6">
