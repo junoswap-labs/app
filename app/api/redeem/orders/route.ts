@@ -190,11 +190,31 @@ export async function POST(request: NextRequest) {
         )
     }
 
-    // kind === 'merch' — STEP 2.2: shipping address is required, with an optional "save on this
-    // device" checkbox the frontend implements via localStorage (no server-side address book).
+    // kind === 'merch' — a shipping address is required, with an optional "save on this device"
+    // checkbox the frontend implements via localStorage (no server-side address book).
     const shipping = body?.shipping as ShippingInfo | undefined
-    if (!shipping?.fullName?.trim() || !shipping?.phone?.trim() || !shipping?.address?.trim()) {
-        return NextResponse.json({ error: 'shipping.fullName, phone, and address are required for merch redemptions' }, { status: 400 })
+    const trim = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+    const structured = {
+        fullName: trim(shipping?.fullName),
+        phone: trim(shipping?.phone),
+        line1: trim(shipping?.line1),
+        line2: trim(shipping?.line2),
+        district: trim(shipping?.district),
+        province: trim(shipping?.province),
+        postalCode: trim(shipping?.postalCode),
+        country: trim(shipping?.country),
+        note: trim(shipping?.note).slice(0, 500),
+    }
+    if (!structured.fullName || !structured.phone || !structured.line1 || !structured.province || !structured.postalCode || !structured.country) {
+        return NextResponse.json(
+            { error: 'fullName, phone, line1, province, postalCode, and country are required for merch redemptions' },
+            { status: 400 }
+        )
+    }
+    // Checked here rather than trusted from the form: the country field is hidden client-side for a
+    // Thailand-only item, and a hidden field is not a validated one.
+    if (item.thailand_only && structured.country.toLowerCase() !== 'thailand') {
+        return NextResponse.json({ error: 'this item ships within Thailand only' }, { status: 400 })
     }
 
     const escrowListingId = `0x${randomBytes(32).toString('hex')}`
@@ -209,7 +229,7 @@ export async function POST(request: NextRequest) {
         .insert({
             ...baseOrder,
             escrow_listing_id: escrowListingId,
-            shipping: { fullName: shipping.fullName.trim(), phone: shipping.phone.trim(), address: shipping.address.trim() },
+            shipping: structured,
         })
         .select()
         .single()

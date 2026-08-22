@@ -167,16 +167,18 @@ export interface Database {
                     nft_contract: string | null
                     nft_token_id: string | null
                     stock: number | null
+                    thailand_only: boolean
                     publish_at: string | null
                     redeem_start_at: string | null
                     redeem_end_at: string | null
                     status: 'draft' | 'published' | 'archived'
                     created_at: string
                 }
-                Insert: Omit<Database['public']['Tables']['redeem_items']['Row'], 'id' | 'status' | 'created_at'> & {
+                Insert: Omit<Database['public']['Tables']['redeem_items']['Row'], 'id' | 'status' | 'created_at' | 'thailand_only'> & {
                     id?: number
                     status?: string
                     created_at?: string
+                    thailand_only?: boolean
                 }
                 Update: Partial<Database['public']['Tables']['redeem_items']['Row']>
                 Relationships: []

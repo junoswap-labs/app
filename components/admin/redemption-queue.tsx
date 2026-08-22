@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { useAdminRedeemOrders, useAttachTracking } from '@/hooks/useRedeemOrders'
 import { useMarkRedeemShipped } from '@/hooks/useRedeemMerchActions'
 import { useAsyncAction } from '@/hooks/useAsyncAction'
-import { redeemPriceLabel } from '@/lib/redeem-format'
+import { formatShippingLines, redeemPriceLabel } from '@/lib/redeem-format'
 import { useChainId } from 'wagmi'
 import type { RedemptionOrder } from '@/types/redeem'
 
@@ -64,10 +64,20 @@ export function RedemptionQueue() {
                                 </span>
                                 <Badge variant="secondary">{o.status}</Badge>
                             </div>
-                            <p className="text-xs text-muted-foreground">
-                                {redeemPriceLabel(o, chainId, o.payment_token)}
-                                {o.shipping && ` · ${o.shipping.fullName}, ${o.shipping.phone} — ${o.shipping.address}`}
-                            </p>
+                            <p className="text-xs text-muted-foreground">{redeemPriceLabel(o, chainId, o.payment_token)}</p>
+                            {o.shipping && (
+                                // The lister copies this straight onto the parcel, so keep it on its
+                                // own lines rather than folded into the price row.
+                                <address className="text-xs not-italic text-muted-foreground">
+                                    <span className="text-foreground">{o.shipping.fullName}</span> · {o.shipping.phone}
+                                    {formatShippingLines(o.shipping).map((line) => (
+                                        <span key={line} className="block">
+                                            {line}
+                                        </span>
+                                    ))}
+                                    {o.shipping.note && <span className="block italic">Note: {o.shipping.note}</span>}
+                                </address>
+                            )}
                         </div>
 
                         {o.status === 'Funded' && (

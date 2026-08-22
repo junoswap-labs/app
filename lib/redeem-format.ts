@@ -1,7 +1,7 @@
 import { formatUnits } from 'viem'
 import { JUNO_PTS_DECIMALS } from '@/types/redeem'
 import { findPaymentToken } from '@/lib/tokens'
-import type { RedeemItem, RedemptionOrder } from '@/types/redeem'
+import type { RedeemItem, RedemptionOrder, ShippingInfo } from '@/types/redeem'
 
 /** Base units -> human-readable Points, shared by every card/detail/order view instead of each
  *  re-deriving formatUnits(..., JUNO_PTS_DECIMALS) inline. */
@@ -30,4 +30,15 @@ export function redeemPriceLabel(
         parts.push(`${formatRedeemTokenAmount(row.payment_amount, chainId, paymentToken)} ${row.payment_token_symbol ?? ''}`.trim())
     }
     return parts.join(' + ') || 'Free'
+}
+
+/**
+ * Renders a shipping address as postable lines. Handles both shapes: the structured fields, and the
+ * single free-text `address` that orders placed before the structured form still carry.
+ */
+export function formatShippingLines(shipping: ShippingInfo): string[] {
+    if (!shipping.line1) return shipping.address ? shipping.address.split('\n').filter(Boolean) : []
+
+    const locality = [shipping.district, shipping.province, shipping.postalCode].filter(Boolean).join(' ')
+    return [shipping.line1, shipping.line2, locality, shipping.country].filter((line): line is string => Boolean(line))
 }

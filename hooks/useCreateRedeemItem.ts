@@ -17,6 +17,7 @@ export interface CreateRedeemItemInput {
     nft_contract?: string
     nft_token_id?: string
     stock?: number | null
+    thailand_only?: boolean
     variants?: { label: string; sku?: string; stock?: number | null }[]
     publish_at?: string
     redeem_start_at?: string

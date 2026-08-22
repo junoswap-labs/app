@@ -8,11 +8,8 @@ import type { Address } from 'viem'
 import { ImageOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { Separator } from '@/components/ui/separator'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
 import { ListedBy } from '@/components/redeem/listed-by'
@@ -25,6 +22,7 @@ import { useJunoPtsBalance } from '@/hooks/useJunoPtsBalance'
 import { erc20Abi } from '@/lib/abis/erc20'
 import { redeemPriceLabel } from '@/lib/redeem-format'
 import { getSavedShipping, saveShipping } from '@/lib/redeem-shipping-storage'
+import { DEFAULT_SHIPPING, ShippingAddressForm, isShippingComplete } from '@/components/redeem/shipping-address-form'
 import { JUNO_PTS_DECIMALS } from '@/types/redeem'
 import { toastSuccess, toastError } from '@/lib/toast'
 import type { ShippingInfo } from '@/types/redeem'
@@ -42,7 +40,7 @@ export default function RedeemItemDetailPage({ params }: { params: Promise<{ ite
 
     const [variantId, setVariantId] = useState<number | undefined>(undefined)
     const savedShipping = useMemo(() => getSavedShipping(), [])
-    const [shipping, setShipping] = useState<ShippingInfo>(savedShipping ?? { fullName: '', phone: '', address: '' })
+    const [shipping, setShipping] = useState<ShippingInfo>(savedShipping ?? DEFAULT_SHIPPING)
     const [rememberAddress, setRememberAddress] = useState(Boolean(savedShipping))
 
     const { data: tokenBalance } = useReadContract({
@@ -87,7 +85,7 @@ export default function RedeemItemDetailPage({ params }: { params: Promise<{ ite
         item.payment_token && item.payment_amount != null && tokenBalance != null && BigInt(item.payment_amount) > tokenBalance
 
     const needsShipping = item.kind === 'merch'
-    const shippingIncomplete = needsShipping && (!shipping.fullName.trim() || !shipping.phone.trim() || !shipping.address.trim())
+    const shippingIncomplete = needsShipping && !isShippingComplete(shipping)
     const needsVariant = hasVariants && variantId == null
 
     const disabled =
@@ -117,113 +115,118 @@ export default function RedeemItemDetailPage({ params }: { params: Promise<{ ite
     }
 
     return (
-        <div className="mx-auto max-w-2xl space-y-6 px-4 py-8 sm:px-6">
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
             <Breadcrumb items={[{ label: 'Redeem', href: '/app/redeem' }, { label: item.name }]} />
 
-            <div className="grid gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                    <div className="overflow-hidden rounded-lg border bg-muted">
-                        {item.image_urls[0] ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={item.image_urls[0]} alt={item.name} className="aspect-square h-full w-full object-cover" />
-                        ) : (
-                            <div className="flex aspect-square items-center justify-center text-muted-foreground">
-                                <ImageOff className="h-8 w-8" />
+            {/* Gallery and everything the buyer reads on the left; the compact buy panel sticks to
+                the right. The shipping form belongs on the wide side — squeezed into the panel rail
+                its three-across fields collapse into unreadable slivers. */}
+            <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
+                <div className="min-w-0 space-y-6">
+                    <div className="space-y-2">
+                        <div className="overflow-hidden rounded-xl border bg-muted">
+                            {item.image_urls[0] ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={item.image_urls[0]} alt={item.name} className="aspect-square h-full w-full object-cover" />
+                            ) : (
+                                <div className="flex aspect-square items-center justify-center text-muted-foreground">
+                                    <ImageOff className="h-8 w-8" />
+                                </div>
+                            )}
+                        </div>
+                        {item.image_urls.length > 1 && (
+                            <div className="flex gap-2">
+                                {item.image_urls.slice(1).map((url) => (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img key={url} src={url} alt="" className="h-16 w-16 rounded-md border object-cover" />
+                                ))}
                             </div>
                         )}
                     </div>
-                    {item.image_urls.length > 1 && (
-                        <div className="flex gap-2">
-                            {item.image_urls.slice(1).map((url) => (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img key={url} src={url} alt="" className="h-16 w-16 rounded-md border object-cover" />
-                            ))}
-                        </div>
-                    )}
-                </div>
 
-                <div className="space-y-4">
-                    <div>
-                        <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
-                        <p className="mt-2 text-sm text-muted-foreground">{item.description}</p>
+                    <div className="space-y-3">
+                        <h1 className="text-3xl font-semibold tracking-[-0.03em]">{item.name}</h1>
+                        <ListedBy tier={item.tier} listerWallet={item.lister_wallet} profile={listerProfile} />
+                        <p className="text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">{item.description}</p>
+                        {item.thailand_only && (
+                            <p className="inline-flex items-center rounded-md border px-2 py-1 text-xs text-muted-foreground">
+                                Ships within Thailand only
+                            </p>
+                        )}
                     </div>
-
-                    <ListedBy tier={item.tier} listerWallet={item.lister_wallet} profile={listerProfile} />
-
-                    <div className="text-2xl font-semibold tabular-nums">
-                        {redeemPriceLabel(item, chainId, item.payment_token)}
-                    </div>
-
-                    {pointBalance != null && (
-                        <p className="text-xs text-muted-foreground">
-                            Your balance: {Number(formatUnits(pointBalance, JUNO_PTS_DECIMALS)).toLocaleString()} PTS
-                        </p>
-                    )}
-
-                    {hasVariants && (
-                        <div className="space-y-1.5">
-                            <Label>Options</Label>
-                            <div className="flex flex-wrap gap-1.5">
-                                {item.variants?.map((v) => (
-                                    <Button
-                                        key={v.id}
-                                        type="button"
-                                        size="sm"
-                                        variant={variantId === v.id ? 'secondary' : 'outline'}
-                                        disabled={v.stock === 0}
-                                        onClick={() => setVariantId(v.id)}
-                                    >
-                                        {v.label}
-                                        {v.stock === 0 ? ' (out of stock)' : v.stock !== null ? ` (${v.stock} left)` : ''}
-                                    </Button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {!hasVariants && item.stock !== null && <p className="text-xs text-muted-foreground">{item.stock} left</p>}
 
                     {needsShipping && (
-                        <>
-                            <Separator />
-                            <div className="space-y-2.5">
-                                <p className="text-sm font-medium">Shipping address</p>
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="ship-name">Full name</Label>
-                                    <Input id="ship-name" value={shipping.fullName} onChange={(e) => setShipping({ ...shipping, fullName: e.target.value })} />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="ship-phone">Phone</Label>
-                                    <Input id="ship-phone" value={shipping.phone} onChange={(e) => setShipping({ ...shipping, phone: e.target.value })} />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="ship-address">Address</Label>
-                                    <Textarea id="ship-address" rows={3} value={shipping.address} onChange={(e) => setShipping({ ...shipping, address: e.target.value })} />
-                                </div>
+                        <Card>
+                            <CardContent className="space-y-3 p-5">
+                                <ShippingAddressForm value={shipping} onChange={setShipping} thailandOnly={item.thailand_only} />
                                 <div className="flex items-center gap-2">
                                     <Switch id="remember" checked={rememberAddress} onCheckedChange={setRememberAddress} />
                                     <Label htmlFor="remember" className="text-xs font-normal text-muted-foreground">
                                         Save this address on this device
                                     </Label>
                                 </div>
-                            </div>
-                        </>
+                            </CardContent>
+                        </Card>
                     )}
+                </div>
 
-                    <Separator />
+                <div className="space-y-4 lg:sticky lg:top-20">
+                    <Card>
+                        <CardContent className="space-y-4 p-5">
+                            <div className="text-2xl font-semibold tabular-nums">
+                                {redeemPriceLabel(item, chainId, item.payment_token)}
+                            </div>
 
-                    {notOpenYet && <p className="text-xs text-muted-foreground">Redeeming opens {new Date(item.redeem_start_at!).toLocaleString()}.</p>}
-                    {closed && <p className="text-xs text-destructive">The redeem window for this item has closed.</p>}
-                    {insufficientPoints && <p className="text-xs text-destructive">Not enough Points.</p>}
-                    {insufficientToken && <p className="text-xs text-destructive">Not enough {item.payment_token_symbol}.</p>}
+                            {pointBalance != null && (
+                                <p className="text-xs text-muted-foreground">
+                                    Your balance: {Number(formatUnits(pointBalance, JUNO_PTS_DECIMALS)).toLocaleString()} PTS
+                                </p>
+                            )}
 
-                    <Button className="w-full" disabled={disabled} isLoading={createOrder.isPending} loadingText="Redeeming…" onClick={redeem}>
-                        {outOfStock ? 'Sold out' : 'Redeem'}
-                    </Button>
+                            {hasVariants && (
+                                <div className="space-y-1.5">
+                                    <Label>Options</Label>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {item.variants?.map((v) => (
+                                            <Button
+                                                key={v.id}
+                                                type="button"
+                                                size="sm"
+                                                variant={variantId === v.id ? 'secondary' : 'outline'}
+                                                disabled={v.stock === 0}
+                                                onClick={() => setVariantId(v.id)}
+                                            >
+                                                {v.label}
+                                                {v.stock === 0 ? ' (out of stock)' : v.stock !== null ? ` (${v.stock} left)` : ''}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {!hasVariants && item.stock !== null && <p className="text-xs text-muted-foreground">{item.stock} left</p>}
+
+                            {notOpenYet && (
+                                <p className="text-xs text-muted-foreground">
+                                    Redeeming opens {new Date(item.redeem_start_at!).toLocaleString()}.
+                                </p>
+                            )}
+                            {closed && <p className="text-xs text-destructive">The redeem window for this item has closed.</p>}
+                            {insufficientPoints && <p className="text-xs text-destructive">Not enough Points.</p>}
+                            {insufficientToken && <p className="text-xs text-destructive">Not enough {item.payment_token_symbol}.</p>}
+                            {needsShipping && shippingIncomplete && (
+                                <p className="text-xs text-muted-foreground">Fill in the shipping address to continue.</p>
+                            )}
+
+                            <Button className="w-full" disabled={disabled} isLoading={createOrder.isPending} loadingText="Redeeming…" onClick={redeem}>
+                                {outOfStock ? 'Sold out' : 'Redeem'}
+                            </Button>
+                        </CardContent>
+                    </Card>
 
                     {myOrderForItem && (
                         <Card>
-                            <CardContent className="space-y-3 p-4">
+                            <CardContent className="space-y-3 p-5">
                                 <p className="text-sm font-medium">Your redemption</p>
                                 <RedemptionStatusTracker status={myOrderForItem.status} kind={myOrderForItem.kind} />
                                 {myOrderForItem.tracking_number && (

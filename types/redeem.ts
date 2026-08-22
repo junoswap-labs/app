@@ -39,6 +39,8 @@ export interface RedeemItem {
     // Only meaningful when the item has no variant rows — an item with variants tracks stock
     // per-variant instead (see `variants` below).
     stock: number | null
+    /** merch kind only — rejects an order whose shipping country isn't Thailand. */
+    thailand_only: boolean
     variants?: RedeemItemVariant[]
     publish_at: string | null
     redeem_start_at: string | null
@@ -47,10 +49,25 @@ export interface RedeemItem {
     created_at: string
 }
 
+/**
+ * Structured so the lister gets a postable address instead of one free-text blob — a missing
+ * postal code or province is the usual reason a parcel comes back.
+ *
+ * `address` is the pre-structured shape: orders created before this form existed carry only that,
+ * so every reader has to fall back to it (see formatShippingLines in lib/redeem-format.ts).
+ */
 export interface ShippingInfo {
     fullName: string
     phone: string
-    address: string
+    line1?: string
+    line2?: string
+    district?: string
+    province?: string
+    postalCode?: string
+    country?: string
+    note?: string
+    /** Legacy free-text address — only set on orders placed before the structured form. */
+    address?: string
 }
 
 // 'PendingPayment' is written by the order-creation Route Handler, before the buyer's wallet has

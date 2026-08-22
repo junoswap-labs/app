@@ -205,6 +205,8 @@ export async function POST(request: NextRequest) {
             nft_contract: nftContract,
             nft_token_id: nftTokenId,
             stock: variants.length > 0 ? null : stock,
+            // Only meaningful for merch — an NFT settles on-chain and never ships anywhere.
+            thailand_only: kind === 'merch' && body?.thailand_only === true,
             publish_at: publishAt,
             redeem_start_at: redeemStartAt,
             redeem_end_at: redeemEndAt,

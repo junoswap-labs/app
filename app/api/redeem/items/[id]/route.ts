@@ -86,6 +86,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         update.stock = stock
     }
 
+    if (typeof body?.thailand_only === 'boolean') update.thailand_only = body.thailand_only
     if (typeof body?.publish_at === 'string' || body?.publish_at === null) update.publish_at = body.publish_at || null
     if (typeof body?.redeem_start_at === 'string' || body?.redeem_start_at === null) update.redeem_start_at = body.redeem_start_at || null
     if (typeof body?.redeem_end_at === 'string' || body?.redeem_end_at === null) update.redeem_end_at = body.redeem_end_at || null

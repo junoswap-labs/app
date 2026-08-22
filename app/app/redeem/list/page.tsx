@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { DateTimePicker } from '@/components/ui/date-time-picker'
 import { TokenAmountInput } from '@/components/ui/token-amount-input'
@@ -62,6 +63,7 @@ export default function ListRedeemItemPage() {
     const [nftContract, setNftContract] = useState('')
     const [nftTokenId, setNftTokenId] = useState('')
     const [stock, setStock] = useState('')
+    const [thailandOnly, setThailandOnly] = useState(false)
     const [variants, setVariants] = useState<VariantRow[]>([])
     const [publishAt, setPublishAt] = useState('')
     const [redeemStartAt, setRedeemStartAt] = useState('')
@@ -149,6 +151,7 @@ export default function ListRedeemItemPage() {
                 nft_contract: kind === 'nft' ? nftContract.trim() : undefined,
                 nft_token_id: kind === 'nft' ? nftTokenId.trim() : undefined,
                 stock: kind === 'merch' && variants.length === 0 && stock ? Number(stock) : null,
+                thailand_only: kind === 'merch' && thailandOnly,
                 variants:
                     kind === 'merch' && variants.length > 0
                         ? variants
@@ -294,7 +297,16 @@ export default function ListRedeemItemPage() {
                             setNftTokenId={setNftTokenId}
                         />
                     ) : (
-                        <MerchFields stock={stock} setStock={setStock} variants={variants} addVariant={addVariant} updateVariant={updateVariant} removeVariant={removeVariant} />
+                        <MerchFields
+                            stock={stock}
+                            setStock={setStock}
+                            thailandOnly={thailandOnly}
+                            setThailandOnly={setThailandOnly}
+                            variants={variants}
+                            addVariant={addVariant}
+                            updateVariant={updateVariant}
+                            removeVariant={removeVariant}
+                        />
                     )}
 
                     <Separator />
@@ -428,6 +440,8 @@ function NftFields({
 function MerchFields({
     stock,
     setStock,
+    thailandOnly,
+    setThailandOnly,
     variants,
     addVariant,
     updateVariant,
@@ -435,6 +449,8 @@ function MerchFields({
 }: {
     stock: string
     setStock: (v: string) => void
+    thailandOnly: boolean
+    setThailandOnly: (v: boolean) => void
     variants: VariantRow[]
     addVariant: () => void
     updateVariant: (i: number, patch: Partial<VariantRow>) => void
@@ -442,6 +458,16 @@ function MerchFields({
 }) {
     return (
         <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                <div>
+                    <Label htmlFor="thailandOnly">Ship within Thailand only</Label>
+                    <p className="text-xs text-muted-foreground">
+                        Buyers outside Thailand can&apos;t order this item. Leave off if you can post it abroad.
+                    </p>
+                </div>
+                <Switch id="thailandOnly" checked={thailandOnly} onCheckedChange={setThailandOnly} />
+            </div>
+
             {variants.length === 0 && (
                 <div className="space-y-1.5">
                     <Label htmlFor="stock">Stock (blank = unlimited)</Label>
