@@ -56,15 +56,19 @@ export function useAirdropCampaign(id: string | undefined) {
 }
 
 export function useMyAirdropCampaigns(wallet: string | undefined) {
+    // creator_wallet is stored lowercase (the sync poller lowercases every address it writes) while
+    // wagmi hands back a checksummed address — comparing them raw matches nothing, which is why
+    // "My Airdrops" came back empty for the wallet that had just created a campaign.
+    const creator = wallet?.toLowerCase()
     return useQuery({
-        queryKey: ['airdrop-campaigns', 'creator', wallet],
-        enabled: !!wallet,
+        queryKey: ['airdrop-campaigns', 'creator', creator],
+        enabled: !!creator,
         staleTime: 15_000,
         queryFn: async (): Promise<AirdropCampaign[]> => {
             const { data, error } = await supabaseBrowser()
                 .from('airdrop_campaigns')
                 .select('*')
-                .eq('creator_wallet', wallet as string)
+                .eq('creator_wallet', creator as string)
                 .order('created_at', { ascending: false })
             if (error) throw error
             return data

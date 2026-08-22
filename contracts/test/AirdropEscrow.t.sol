@@ -390,13 +390,60 @@ contract AirdropEscrowTest is Test {
     }
 
     // ---------------------------------------------------------------------
+    // End campaign (force stop)
+    // ---------------------------------------------------------------------
+
+    function testEndCampaignLetsCreatorReclaimWithoutAnExpiry() public {
+        _createFixed(CAMPAIGN, 10 ether, 100 ether, 10, 0); // no expiry at all
+        _claimSelf(CAMPAIGN, alice, 10 ether);
+
+        vm.prank(creator);
+        escrow.endCampaign(CAMPAIGN);
+
+        uint256 balanceBefore = token.balanceOf(creator);
+        vm.prank(creator);
+        escrow.reclaim(CAMPAIGN);
+        assertEq(token.balanceOf(creator) - balanceBefore, 90 ether, "the unclaimed remainder comes back");
+    }
+
+    function testClaimAfterEndCampaignReverts() public {
+        _createFixed(CAMPAIGN, 10 ether, 100 ether, 10, 0);
+        vm.prank(creator);
+        escrow.endCampaign(CAMPAIGN);
+
+        // Built inline rather than through _claimSelf: expectRevert applies to the next call, and
+        // that helper signs (a cheatcode call) before it reaches claim().
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signClaim(signerPk, CAMPAIGN, alice, 10 ether, deadline);
+        vm.prank(alice);
+        vm.expectRevert("campaign not active");
+        escrow.claim(CAMPAIGN, alice, 10 ether, deadline, sig);
+    }
+
+    function testEndCampaignByStrangerReverts() public {
+        _createFixed(CAMPAIGN, 10 ether, 100 ether, 10, 0);
+        vm.prank(alice);
+        vm.expectRevert("not creator or admin");
+        escrow.endCampaign(CAMPAIGN);
+    }
+
+    function testEndCampaignTwiceReverts() public {
+        _createFixed(CAMPAIGN, 10 ether, 100 ether, 10, 0);
+        vm.startPrank(creator);
+        escrow.endCampaign(CAMPAIGN);
+        vm.expectRevert("campaign not active");
+        escrow.endCampaign(CAMPAIGN);
+        vm.stopPrank();
+    }
+
+    // ---------------------------------------------------------------------
     // Reclaim
     // ---------------------------------------------------------------------
 
     function testReclaimBeforeExpiryReverts() public {
         _createFixed(CAMPAIGN, 10 ether, 100 ether, 10, block.timestamp + 1 days);
         vm.prank(creator);
-        vm.expectRevert("not expired yet");
+        vm.expectRevert("campaign still active");
         escrow.reclaim(CAMPAIGN);
     }
 
@@ -405,7 +452,7 @@ contract AirdropEscrowTest is Test {
         _createFixed(CAMPAIGN, 10 ether, 100 ether, 10, expiresAt);
         vm.warp(expiresAt); // strict > boundary, matching RwaEscrow's deadline convention
         vm.prank(creator);
-        vm.expectRevert("not expired yet");
+        vm.expectRevert("campaign still active");
         escrow.reclaim(CAMPAIGN);
     }
 

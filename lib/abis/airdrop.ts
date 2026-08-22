@@ -161,6 +161,13 @@ export const airdropEscrowAbi = [
     },
     {
         type: 'function',
+        name: 'endCampaign',
+        stateMutability: 'nonpayable',
+        inputs: [{ name: 'campaignId', type: 'bytes32' }],
+        outputs: [],
+    },
+    {
+        type: 'function',
         name: 'reclaim',
         stateMutability: 'nonpayable',
         inputs: [{ name: 'campaignId', type: 'bytes32' }],

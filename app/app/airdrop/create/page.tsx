@@ -23,11 +23,12 @@ const LocationPickerMap = dynamic(() => import('@/components/airdrop/location-pi
     loading: () => <div className="h-64 w-full animate-pulse rounded-md border bg-muted" />,
 })
 import { useCreateAirdropCampaign } from '@/hooks/useAirdropActions'
+import { TxProgressDialog } from '@/components/airdrop/tx-progress'
 import { estimateAirdropGasDeposit } from '@/lib/onchain/airdrop-gas'
 import { toastSuccess, toastError } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import type { AirdropAmountMode, AirdropGasMode, AirdropVisibility } from '@/types/airdrop'
-import { ArrowLeft, Check, CircleHelp, Coins, Link2, Settings2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, CircleHelp } from 'lucide-react'
 import Link from 'next/link'
 
 const RELAYER_ADDRESS = process.env.NEXT_PUBLIC_AIRDROP_RELAYER_ADDRESS
@@ -87,6 +88,7 @@ export default function CreateAirdropPage() {
     const [locationLng, setLocationLng] = useState<number | null>(null)
     const [locationRadiusM, setLocationRadiusM] = useState('200')
     const [ipDedupeEnabled, setIpDedupeEnabled] = useState(false)
+    const [step, setStep] = useState(0)
 
     const validToken = ADDRESS_RE.test(tokenAddress)
     const { data: tokenMeta } = useReadContracts({
@@ -110,10 +112,18 @@ export default function CreateAirdropPage() {
     const autoTotal =
         amountMode === 'fixed' && limited && maxClaimantsNum > 0 ? multiplyDecimalString(fixedAmount, maxClaimantsNum) : null
 
-    // Random + Limited: mirrors AirdropEscrow.sol's createCampaign() feasibility check
-    // ("totalAmount cannot cover maxClaimants at minAmount") so the form catches it before submit.
+    // Random mode: mirrors AirdropEscrow.sol's createCampaign() feasibility checks so the form
+    // catches them before submit — totalAmount must cover BOTH maxAmount on its own ("maxAmount
+    // exceeds totalAmount", required unconditionally — a single claimant can't be authorized more
+    // than the whole pot) and, when Limited, minAmount * maxClaimants ("totalAmount cannot cover
+    // maxClaimants at minAmount"). The stricter (larger) of the two wins.
+    const minForAllClaimants = limited && maxClaimantsNum > 0 ? multiplyDecimalString(minAmount, maxClaimantsNum) : null
     const minRequiredTotal =
-        amountMode === 'random' && limited && maxClaimantsNum > 0 ? multiplyDecimalString(minAmount, maxClaimantsNum) : null
+        amountMode === 'random' && Number(maxAmount) > 0
+            ? minForAllClaimants != null && compareDecimalStrings(minForAllClaimants, maxAmount) > 0
+                ? minForAllClaimants
+                : maxAmount
+            : null
     const totalTooLowForRandom =
         minRequiredTotal != null && DECIMAL_RE.test(totalAmount.trim()) && compareDecimalStrings(totalAmount.trim(), minRequiredTotal) < 0
 
@@ -127,6 +137,13 @@ export default function CreateAirdropPage() {
     useEffect(() => {
         if (autoTotal != null) setTotalAmount(autoTotal)
     }, [autoTotal])
+
+    // Random mode: no free-form entry either — total is locked to the minimum required (whichever
+    // of maxAmount or minAmount*claimants is stricter, see minRequiredTotal above) so a creator can
+    // never type in a total that would revert on-chain with "maxAmount exceeds totalAmount".
+    useEffect(() => {
+        if (amountMode === 'random' && minRequiredTotal != null) setTotalAmount(minRequiredTotal)
+    }, [amountMode, minRequiredTotal])
 
     const preview = (() => {
         if (amountMode === 'fixed') {
@@ -185,6 +202,22 @@ export default function CreateAirdropPage() {
         (gasMode === 'relayer' && !RELAYER_ADDRESS) ||
         (gasMode === 'relayer' && !limited)
 
+    const STEPS = ['Token & amount', 'Who pays gas?', 'Details', 'Restrictions'] as const
+    const stepIncomplete = [
+        !validToken ||
+            tokenDecimals == null ||
+            !tokenSymbol ||
+            !Number(totalAmount) ||
+            (amountMode === 'fixed' ? !Number(fixedAmount) : !Number(minAmount) || !Number(maxAmount)) ||
+            (limited && !Number(maxClaimants)) ||
+            totalTooLowForRandom,
+        gasMode === 'relayer' && (!RELAYER_ADDRESS || !limited),
+        !title.trim() || (hasExpiry && !expiresAt),
+        false,
+    ]
+    const goNext = () => setStep((s) => Math.min(s + 1, STEPS.length - 1))
+    const goBack = () => setStep((s) => Math.max(s - 1, 0))
+
     const submit = async () => {
         if (!isConnected) {
             toastError('Please connect your wallet first')
@@ -193,7 +226,7 @@ export default function CreateAirdropPage() {
         if (incomplete || tokenDecimals == null || !tokenSymbol) return
 
         try {
-            const { campaignId } = await createCampaign.createCampaignAsync({
+            await createCampaign.createCampaignAsync({
                 token: tokenAddress as Address,
                 tokenSymbol,
                 tokenDecimals,
@@ -216,37 +249,41 @@ export default function CreateAirdropPage() {
                 ipDedupeEnabled,
             })
             toastSuccess('Airdrop created')
-            router.push(`/app/airdrop/${campaignId}`)
+            router.push('/app/airdrop')
         } catch (err) {
             toastError(err instanceof Error ? err.message : 'Creating the airdrop failed')
         }
     }
 
     return (
-        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
-            <Link href="/app/airdrop" className="mb-8 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to airdrops</Link>
-            <div className="mb-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-end">
-                <div>
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Creator workspace</p>
-                    <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Create an airdrop</h1>
-                    <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">Set up a transparent token giveaway. Your campaign will be ready to share as a link or QR code once the transaction confirms.</p>
-                </div>
-                <div className="rounded-2xl border bg-card p-4">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Setup progress</p>
-                    <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full w-1/4 rounded-full bg-foreground" /></div>
-                    <p className="text-sm font-medium">1 of 4 sections started</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Token details come first</p>
-                </div>
+        <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6 sm:px-6 lg:py-10">
+            <Link href="/app/airdrop" className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to airdrops</Link>
+            <header className="border-b pb-6">
+                <h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">Create an airdrop</h1>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">Set up a transparent token giveaway. Your campaign will be ready to share as a link or QR code once the transaction confirms.</p>
+            </header>
+
+            <div className="flex items-center gap-2">
+                {STEPS.map((label, i) => (
+                    <div key={label} className="flex flex-1 items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => i < step && setStep(i)}
+                            disabled={i > step}
+                            className={cn(
+                                'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium',
+                                i === step ? 'bg-primary text-primary-foreground' : i < step ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
+                            )}
+                        >
+                            {i < step ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                        </button>
+                        <span className={cn('hidden text-xs sm:inline', i === step ? 'font-medium text-foreground' : 'text-muted-foreground')}>{label}</span>
+                        {i < STEPS.length - 1 && <div className={cn('h-px flex-1', i < step ? 'bg-primary/40' : 'bg-border')} />}
+                    </div>
+                ))}
             </div>
 
-            <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                <div className="flex gap-3 rounded-xl border bg-card p-4"><Coins className="h-5 w-5 shrink-0 text-muted-foreground" /><div><p className="text-sm font-medium">Fund the pool</p><p className="mt-1 text-xs text-muted-foreground">Choose token and amount</p></div></div>
-                <div className="flex gap-3 rounded-xl border bg-card p-4"><Settings2 className="h-5 w-5 shrink-0 text-muted-foreground" /><div><p className="text-sm font-medium">Set the rules</p><p className="mt-1 text-xs text-muted-foreground">Claims, expiry and gas</p></div></div>
-                <div className="flex gap-3 rounded-xl border bg-card p-4"><Link2 className="h-5 w-5 shrink-0 text-muted-foreground" /><div><p className="text-sm font-medium">Share with anyone</p><p className="mt-1 text-xs text-muted-foreground">Get a link and QR code</p></div></div>
-            </div>
-
-            <div className="mx-auto max-w-3xl space-y-4">
-
+            {step === 0 && (
             <Card>
                 <CardHeader>
                     <CardTitle className="text-base">Token &amp; amount</CardTitle>
@@ -267,7 +304,7 @@ export default function CreateAirdropPage() {
 
                     <div className="space-y-1.5">
                         <Label>Distribution</Label>
-                        <RadioGroup value={amountMode} onValueChange={(v) => setAmountMode(v as AirdropAmountMode)} className="grid-cols-2">
+                        <RadioGroup value={amountMode} onValueChange={(v) => setAmountMode(v as AirdropAmountMode)} className="grid-cols-1 sm:grid-cols-2">
                             <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
                                 <RadioGroupItem value="fixed" id="mode-fixed" />
                                 Fixed amount
@@ -285,7 +322,7 @@ export default function CreateAirdropPage() {
                             <Input id="fixedAmount" type="number" min="0" value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)} />
                         </div>
                     ) : (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
                                 <Label htmlFor="minAmount">Min per claim{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
                                 <Input id="minAmount" type="number" min="0" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} />
@@ -299,7 +336,7 @@ export default function CreateAirdropPage() {
 
                     <div className="space-y-1.5">
                         <Label>Number of claimants</Label>
-                        <RadioGroup value={limited ? 'limited' : 'unlimited'} onValueChange={(v) => setLimited(v === 'limited')} className="grid-cols-2">
+                        <RadioGroup value={limited ? 'limited' : 'unlimited'} onValueChange={(v) => setLimited(v === 'limited')} className="grid-cols-1 sm:grid-cols-2">
                             <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
                                 <RadioGroupItem value="limited" id="claimants-limited" />
                                 Limited
@@ -321,34 +358,23 @@ export default function CreateAirdropPage() {
                     </div>
 
                     <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="totalAmount">Total giveaway amount{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                            {amountMode === 'random' && limited && minRequiredTotal != null && (
-                                <button
-                                    type="button"
-                                    className="text-xs text-primary underline-offset-2 hover:underline"
-                                    onClick={() => setTotalAmount(minRequiredTotal)}
-                                >
-                                    Use minimum
-                                </button>
-                            )}
-                        </div>
+                        <Label htmlFor="totalAmount">Total giveaway amount{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
                         <Input
                             id="totalAmount"
                             type="number"
                             min="0"
                             value={totalAmount}
                             onChange={(e) => setTotalAmount(e.target.value)}
-                            readOnly={amountMode === 'fixed' && limited && autoTotal != null}
+                            readOnly={(amountMode === 'fixed' && limited && autoTotal != null) || (amountMode === 'random' && minRequiredTotal != null)}
                             className={cn(totalTooLowForRandom && 'border-destructive focus-visible:ring-destructive')}
                         />
                         {amountMode === 'fixed' && limited ? (
                             <p className="text-xs text-muted-foreground">Calculated automatically: amount per claim × number of claimants.</p>
-                        ) : amountMode === 'random' && limited ? (
+                        ) : amountMode === 'random' ? (
                             <p className={cn('text-xs', totalTooLowForRandom ? 'text-destructive' : 'text-muted-foreground')}>
                                 {minRequiredTotal != null
-                                    ? `Needs at least ${minRequiredTotal} ${symbol} to guarantee every claimant the minimum.`
-                                    : 'Set min per claim and number of claimants to see the minimum required.'}
+                                    ? `Calculated automatically: the minimum required to cover max per claim${limited ? ' and every claimant\'s minimum' : ''} (${minRequiredTotal} ${symbol}).`
+                                    : 'Set min and max per claim to see the total required.'}
                             </p>
                         ) : (
                             <p className="text-xs text-muted-foreground">The campaign runs until this pool is claimed out.</p>
@@ -365,8 +391,9 @@ export default function CreateAirdropPage() {
                     </div>
                 </CardContent>
             </Card>
+            )}
 
-            {limited ? (
+            {step === 1 && (limited ? (
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base">Who pays gas to claim?</CardTitle>
@@ -417,8 +444,9 @@ export default function CreateAirdropPage() {
                         </p>
                     </CardContent>
                 </Card>
-            )}
+            ))}
 
+            {step === 2 && (
             <Card>
                 <CardHeader>
                     <CardTitle className="text-base">Details</CardTitle>
@@ -435,7 +463,7 @@ export default function CreateAirdropPage() {
                     <ImageUploadField value={coverImageUrl} onChange={setCoverImageUrl} label="Cover image" />
                     <div className="space-y-1.5">
                         <Label>Who can find this?</Label>
-                        <RadioGroup value={visibility} onValueChange={(v) => setVisibility(v as AirdropVisibility)} className="grid-cols-2">
+                        <RadioGroup value={visibility} onValueChange={(v) => setVisibility(v as AirdropVisibility)} className="grid-cols-1 sm:grid-cols-2">
                             <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
                                 <RadioGroupItem value="public" id="visibility-public" />
                                 Public
@@ -453,7 +481,10 @@ export default function CreateAirdropPage() {
                     </div>
                 </CardContent>
             </Card>
+            )}
 
+            {step === 3 && (
+            <>
             <Card>
                 <CardHeader>
                     <CardTitle className="text-base">Optional restrictions</CardTitle>
@@ -506,18 +537,34 @@ export default function CreateAirdropPage() {
             </Card>
 
             <div className="rounded-xl border bg-muted/40 p-4 text-sm text-muted-foreground"><div className="flex items-start gap-2"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0" /><p>Review your token address, total pool, and visibility before creating. Blockchain transactions cannot be undone.</p></div></div>
-            <Button
-                className="w-full"
-                size="lg"
-                disabled={incomplete || createCampaign.isPending}
-                isLoading={createCampaign.isPending}
-                loadingText="Creating airdrop…"
-                onClick={submit}
-            >
-                Create airdrop
-            </Button>
-            <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground"><Check className="h-3.5 w-3.5" /> You can manage or reclaim the campaign later</p>
+            </>
+            )}
+
+            <div className="flex gap-3">
+                {step > 0 && (
+                    <Button type="button" variant="outline" size="lg" className="flex-1" onClick={goBack}>
+                        <ArrowLeft className="h-4 w-4" /> Back
+                    </Button>
+                )}
+                {step < STEPS.length - 1 ? (
+                    <Button type="button" size="lg" className="flex-1" disabled={stepIncomplete[step]} onClick={goNext}>
+                        Next <ArrowRight className="h-4 w-4" />
+                    </Button>
+                ) : (
+                    <Button
+                        className="flex-1"
+                        size="lg"
+                        disabled={incomplete || createCampaign.isPending}
+                        isLoading={createCampaign.isPending}
+                        loadingText="Creating airdrop…"
+                        onClick={submit}
+                    >
+                        Create airdrop
+                    </Button>
+                )}
             </div>
+            <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground"><Check className="h-3.5 w-3.5" /> You can manage or reclaim the campaign later</p>
+            <TxProgressDialog phase={createCampaign.phase} />
         </div>
     )
 }
