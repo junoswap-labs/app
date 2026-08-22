@@ -22,3 +22,21 @@ export function permissionRegistryAddress(): Address {
     if (!addr) throw new Error('NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS is not set')
     return addr as Address
 }
+
+export function junoPtsAddress(): Address {
+    const addr = process.env.NEXT_PUBLIC_JUNO_PTS_ADDRESS
+    if (!addr) throw new Error('NEXT_PUBLIC_JUNO_PTS_ADDRESS is not set')
+    return addr as Address
+}
+
+export function redeemNftSettlementAddress(): Address {
+    const addr = process.env.NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS
+    if (!addr) throw new Error('NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS is not set')
+    return addr as Address
+}
+
+export function redeemRwaEscrowAddress(): Address {
+    const addr = process.env.NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS
+    if (!addr) throw new Error('NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS is not set')
+    return addr as Address
+}

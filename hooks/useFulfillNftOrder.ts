@@ -1,11 +1,12 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { usePublicClient, useWriteContract } from 'wagmi'
+import { usePublicClient } from 'wagmi'
 import type { Address } from 'viem'
 import { nftMarketplaceAbi } from '@/lib/abis/nft-marketplace'
 import { supabaseBrowser } from '@/lib/supabase/client'
 import { useSyncRefresh } from '@/hooks/useSyncRefresh'
+import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
 import type { Database } from '@/types/supabase'
 
 const NFT_MARKETPLACE_ADDRESS = process.env.NEXT_PUBLIC_NFT_MARKETPLACE_ADDRESS as Address | undefined
@@ -38,7 +39,7 @@ export async function loadOrder(orderHash: string) {
 
 /** Buy — the one on-chain tx in the whole NFT flow (listing itself was gasless). */
 export function useFulfillNftOrder() {
-    const { writeContractAsync } = useWriteContract()
+    const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()
     const queryClient = useQueryClient()
@@ -48,7 +49,7 @@ export function useFulfillNftOrder() {
             if (!NFT_MARKETPLACE_ADDRESS) throw new Error('NftMarketplace is not deployed yet')
             const { order, signature } = await loadOrder(orderHash)
 
-            const hash = await writeContractAsync({
+            const hash = await write({
                 address: NFT_MARKETPLACE_ADDRESS,
                 abi: nftMarketplaceAbi,
                 functionName: 'fulfillOrder',

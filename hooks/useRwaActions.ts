@@ -4,8 +4,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccount, useWriteContract, usePublicClient } from 'wagmi'
 import type { Address } from 'viem'
 import { rwaEscrowAbi } from '@/lib/abis/rwa-escrow'
-import { erc20Abi } from '@/lib/abis/erc20'
+import { ensureTokenAllowance } from '@/lib/onchain/erc20'
 import { useSyncRefresh } from '@/hooks/useSyncRefresh'
+import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
 
 const RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_RWA_ESCROW_ADDRESS as Address | undefined
 
@@ -17,7 +18,7 @@ const RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_RWA_ESCROW_ADDRESS as Address
  * (functionName is a plain string here) so that tradeoff stays contained to one file.
  */
 function useRwaWrite(functionName: string) {
-    const { writeContractAsync } = useWriteContract()
+    const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()
     const queryClient = useQueryClient()
@@ -25,12 +26,12 @@ function useRwaWrite(functionName: string) {
     return useMutation({
         mutationFn: async (args: readonly unknown[]) => {
             if (!RWA_ESCROW_ADDRESS) throw new Error('RwaEscrow is not deployed yet')
-            const hash = await writeContractAsync({
+            const hash = await write({
                 address: RWA_ESCROW_ADDRESS,
                 abi: rwaEscrowAbi,
                 functionName,
                 args,
-            } as Parameters<typeof writeContractAsync>[0])
+            })
             if (!publicClient) throw new Error('no public client available')
             await publicClient.waitForTransactionReceipt({ hash })
             await syncRefresh.mutateAsync()
@@ -49,6 +50,7 @@ function useRwaWrite(functionName: string) {
 export function useFundRwaOrder() {
     const { address } = useAccount()
     const { writeContractAsync } = useWriteContract()
+    const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()
     const queryClient = useQueryClient()
@@ -69,23 +71,16 @@ export function useFundRwaOrder() {
             if (!address) throw new Error('connect your wallet first')
             if (!publicClient) throw new Error('no public client available')
 
-            const allowance = await publicClient.readContract({
-                address: paymentToken,
-                abi: erc20Abi,
-                functionName: 'allowance',
-                args: [address, RWA_ESCROW_ADDRESS],
+            await ensureTokenAllowance({
+                publicClient,
+                writeContractAsync,
+                token: paymentToken,
+                owner: address,
+                spender: RWA_ESCROW_ADDRESS,
+                amount,
             })
-            if (allowance < amount) {
-                const approveHash = await writeContractAsync({
-                    address: paymentToken,
-                    abi: erc20Abi,
-                    functionName: 'approve',
-                    args: [RWA_ESCROW_ADDRESS, amount],
-                })
-                await publicClient.waitForTransactionReceipt({ hash: approveHash })
-            }
 
-            const hash = await writeContractAsync({
+            const hash = await write({
                 address: RWA_ESCROW_ADDRESS,
                 abi: rwaEscrowAbi,
                 functionName: 'fund',

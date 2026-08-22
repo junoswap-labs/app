@@ -41,4 +41,27 @@ export const erc721Abi = [
         ],
         outputs: [],
     },
+    {
+        type: 'function',
+        name: 'transferFrom',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'from', type: 'address' },
+            { name: 'to', type: 'address' },
+            { name: 'tokenId', type: 'uint256' },
+        ],
+        outputs: [],
+    },
+    {
+        // Ownership derivation for an arbitrary collection (no Enumerable assumption) replays this
+        // event via getLogs — see scripts/clone-nft-collection.ts.
+        type: 'event',
+        name: 'Transfer',
+        inputs: [
+            { name: 'from', type: 'address', indexed: true },
+            { name: 'to', type: 'address', indexed: true },
+            { name: 'tokenId', type: 'uint256', indexed: true },
+        ],
+        anonymous: false,
+    },
 ] as const
