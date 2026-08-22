@@ -24,7 +24,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, React.ComponentProps<'tex
                     else if (ref) ref.current = node
                 }}
                 className={cn(
-                    'flex min-h-9 max-h-48 w-full resize-none bg-transparent px-3 py-2 text-base transition-colors placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+                    'flex min-h-9 max-h-48 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-base shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
                     className
                 )}
                 {...props}

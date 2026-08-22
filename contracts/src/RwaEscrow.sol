@@ -52,10 +52,15 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
     // construction (see constructor) so a misconfigured instance can never be deployed.
     uint256 public immutable DISPUTE_GRACE; // either party can open a dispute this long after shipping
     uint256 public immutable AUTO_RELEASE_DEADLINE; // anyone can force payout to seller after this if buyer never confirms
+    // One-time buyer-triggered grace period on top of AUTO_RELEASE_DEADLINE (e.g. slow/international
+    // shipping still in transit) — see extendAutoRelease(). Immutable per-deployment like the three
+    // deadlines above, so testnet can use minutes.
+    uint256 public immutable EXTENSION_PERIOD;
     uint256 public constant MAX_FEE_BPS = 1000; // 10% cap
     uint256 private constant BPS_DENOMINATOR = 10000;
 
     mapping(bytes32 => RwaOrder) public orders; // key = listingId minted by the backend
+    mapping(bytes32 => uint256) public autoReleaseExtension; // listingId => extra seconds granted, 0 = none
     mapping(address => bool) public allowedPaymentTokens;
     uint256 public feeBps;
     address public feeCollector;
@@ -69,6 +74,7 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
         uint256 fundedAt
     );
     event RwaShipped(bytes32 indexed listingId, uint256 shippedAt);
+    event AutoReleaseExtended(bytes32 indexed listingId, address indexed buyer, uint256 extendedBy, uint256 newDeadline);
     event RwaCompleted(bytes32 indexed listingId, uint256 amountToSeller, uint256 fee);
     event RwaAutoReleased(bytes32 indexed listingId, uint256 amountToSeller, uint256 fee);
     event RwaRefunded(bytes32 indexed listingId, uint256 amount);
@@ -83,7 +89,8 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
         address _feeCollector,
         uint256 _shipDeadline,
         uint256 _disputeGrace,
-        uint256 _autoReleaseDeadline
+        uint256 _autoReleaseDeadline,
+        uint256 _extensionPeriod
     ) {
         require(_feeBps <= MAX_FEE_BPS, "fee too high");
         require(_feeCollector != address(0), "zero feeCollector");
@@ -93,6 +100,7 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
         SHIP_DEADLINE = _shipDeadline;
         DISPUTE_GRACE = _disputeGrace;
         AUTO_RELEASE_DEADLINE = _autoReleaseDeadline;
+        EXTENSION_PERIOD = _extensionPeriod;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -146,10 +154,28 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
     function claimShipmentTimeout(bytes32 listingId) external nonReentrant whenNotPaused {
         RwaOrder storage o = orders[listingId];
         require(o.status == Status.Shipped, "not shipped");
-        require(block.timestamp > o.shippedAt + AUTO_RELEASE_DEADLINE, "auto-release deadline not passed");
+        require(
+            block.timestamp > o.shippedAt + AUTO_RELEASE_DEADLINE + autoReleaseExtension[listingId],
+            "auto-release deadline not passed"
+        );
         o.status = Status.Completed;
         (uint256 toSeller, uint256 fee) = _payout(o, o.seller);
         emit RwaAutoReleased(listingId, toSeller, fee);
+    }
+
+    /// @notice Buyer-only, one-time grace period on top of AUTO_RELEASE_DEADLINE — e.g. shipping is
+    ///         slow or still in transit internationally. Callable anytime the order is Shipped
+    ///         (including after the original deadline has technically elapsed, as long as nobody has
+    ///         called claimShipmentTimeout yet) — it's a race the buyer can still win by extending
+    ///         before a keeper claims. Cannot be called twice: reverts if already extended.
+    function extendAutoRelease(bytes32 listingId) external whenNotPaused {
+        RwaOrder storage o = orders[listingId];
+        require(msg.sender == o.buyer, "not buyer");
+        require(o.status == Status.Shipped, "not shipped");
+        require(autoReleaseExtension[listingId] == 0, "already extended");
+        autoReleaseExtension[listingId] = EXTENSION_PERIOD;
+        uint256 newDeadline = o.shippedAt + AUTO_RELEASE_DEADLINE + EXTENSION_PERIOD;
+        emit AutoReleaseExtended(listingId, msg.sender, EXTENSION_PERIOD, newDeadline);
     }
 
     /// @notice Buyer escape hatch when the seller never ships. Full refund, no fee taken.

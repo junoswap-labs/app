@@ -13,7 +13,11 @@ export interface PaymentToken {
 // called on-chain before it's actually usable, independent of this registry).
 export const PAYMENT_TOKENS: Record<number, PaymentToken[]> = {
     [bitkub.id]: [{ symbol: 'KKUB', address: '0x67eBD850304c70d983B2d1b93ea79c7CD6c3F6b5', decimals: 18 }],
-    [kubTestnet.id]: [],
+    [kubTestnet.id]: [
+        { symbol: 'tKKUB', address: '0x700D3ba307E1256e509eD3E45D6f9dff441d6907', decimals: 18 },
+        { symbol: 'testKUB', address: '0xE7f64C5fEFC61F85A8b851d8B16C4E21F91e60c0', decimals: 18 },
+        { symbol: 'testToken', address: '0x23352915164527e0AB53Ca5519aec5188aa224A2', decimals: 18 },
+    ],
 }
 
 export function getPaymentTokens(chainId: number): PaymentToken[] {

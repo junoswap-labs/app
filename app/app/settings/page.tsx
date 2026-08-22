@@ -7,16 +7,17 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { GoogleLinkCard } from '@/components/settings/google-link-card'
 import { TelegramLinkCard } from '@/components/settings/telegram-link-card'
-import { useMockSettings } from '@/store/mock-settings'
+import { ListerProfileCard } from '@/components/settings/lister-profile-card'
+import { useCurrentUser, useUpdateNotifyPrefs } from '@/hooks/useCurrentUser'
 import { useIsAuthorized } from '@/hooks/useOnChainRoles'
 import { useMyApplications } from '@/hooks/useApplications'
 
 export default function SettingsPage() {
     const isAuthorized = useIsAuthorized()
     const { data: applications } = useMyApplications('authorize_rwa')
-    const { notifyNewOffer, notifyDeadline, setNotify } = useMockSettings()
+    const { data: me } = useCurrentUser()
+    const updateNotify = useUpdateNotifyPrefs()
 
     const latest = applications?.[0]
     const sellerBadge = isAuthorized
@@ -33,8 +34,12 @@ export default function SettingsPage() {
 
             <section className="space-y-3">
                 <h2 className="text-sm font-medium text-muted-foreground">Linked accounts</h2>
-                <GoogleLinkCard />
                 <TelegramLinkCard />
+            </section>
+
+            <section className="space-y-3">
+                <h2 className="text-sm font-medium text-muted-foreground">List By</h2>
+                <ListerProfileCard />
             </section>
 
             <section className="space-y-3">
@@ -80,8 +85,9 @@ export default function SettingsPage() {
                             </div>
                             <Switch
                                 id="notify-offer"
-                                checked={notifyNewOffer}
-                                onCheckedChange={(v) => setNotify('notifyNewOffer', v)}
+                                checked={me?.notify_new_offer ?? true}
+                                disabled={updateNotify.isPending}
+                                onCheckedChange={(v) => updateNotify.mutate({ notify_new_offer: v })}
                             />
                         </div>
                         <div className="flex items-center justify-between">
@@ -95,8 +101,9 @@ export default function SettingsPage() {
                             </div>
                             <Switch
                                 id="notify-deadline"
-                                checked={notifyDeadline}
-                                onCheckedChange={(v) => setNotify('notifyDeadline', v)}
+                                checked={me?.notify_deadline ?? true}
+                                disabled={updateNotify.isPending}
+                                onCheckedChange={(v) => updateNotify.mutate({ notify_deadline: v })}
                             />
                         </div>
                     </CardContent>

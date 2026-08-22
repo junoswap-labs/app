@@ -66,4 +66,9 @@ export interface AnalyticsResponse {
 // PermissionRegistry.sol on-chain (see contracts/), not the session/DB. See hooks/useCurrentUser.ts.
 export interface MeResponse {
     wallet_address: string
+    google_email: string | null
+    telegram_chat_id: string | null
+    telegram_username: string | null
+    notify_new_offer: boolean
+    notify_deadline: boolean
 }

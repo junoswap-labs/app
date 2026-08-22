@@ -13,6 +13,9 @@ import {RwaEscrow} from "../src/RwaEscrow.sol";
 ///      SHIP_DEADLINE           — mainnet: 604800 (7 days)  · testnet suggestion: 420 (7 minutes)
 ///      DISPUTE_GRACE           — mainnet: 259200 (3 days)  · testnet suggestion: 180 (3 minutes)
 ///      AUTO_RELEASE_DEADLINE   — mainnet: 864000 (10 days) · testnet suggestion: 600 (10 minutes)
+///      EXTENSION_PERIOD        — mainnet: 604800 (7 days)  · testnet suggestion: 420 (7 minutes)
+///                                one-time buyer-triggered grace period on top of
+///                                AUTO_RELEASE_DEADLINE, see extendAutoRelease() on the contract
 ///      PRIVATE_KEY             — deployer key
 ///      The constructor itself enforces DISPUTE_GRACE < AUTO_RELEASE_DEADLINE — get this wrong
 ///      and the deploy tx reverts rather than producing a misconfigured instance.
@@ -23,10 +26,11 @@ contract DeployRwaEscrow is Script {
         uint256 shipDeadline = vm.envUint("SHIP_DEADLINE");
         uint256 disputeGrace = vm.envUint("DISPUTE_GRACE");
         uint256 autoReleaseDeadline = vm.envUint("AUTO_RELEASE_DEADLINE");
+        uint256 extensionPeriod = vm.envUint("EXTENSION_PERIOD");
         uint256 pk = vm.envUint("PRIVATE_KEY");
 
         vm.startBroadcast(pk);
-        escrow = new RwaEscrow(feeBps, feeCollector, shipDeadline, disputeGrace, autoReleaseDeadline);
+        escrow = new RwaEscrow(feeBps, feeCollector, shipDeadline, disputeGrace, autoReleaseDeadline, extensionPeriod);
         vm.stopBroadcast();
     }
 }
