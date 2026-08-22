@@ -47,9 +47,12 @@ export async function POST(request: NextRequest) {
     }
 
     const wallet = result.data.address.toLowerCase()
-    await supabaseAdmin()
+    const { error: userError } = await supabaseAdmin()
         .from('users')
         .upsert({ wallet_address: wallet }, { onConflict: 'wallet_address', ignoreDuplicates: true })
+    // Every other table's wallet columns FK-reference users(wallet_address) — a session cookie must
+    // never be issued without this row existing, or every later write 500s on the FK constraint.
+    if (userError) return NextResponse.json({ error: 'could not create user record' }, { status: 500 })
 
     const res = NextResponse.json({ wallet_address: wallet })
     res.cookies.set(SESSION_COOKIE, createSessionToken(wallet), {
