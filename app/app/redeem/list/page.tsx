@@ -3,15 +3,13 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useAccount, useChainId, useReadContract, useWriteContract, usePublicClient } from 'wagmi'
+import { useAccount, useChainId } from 'wagmi'
 import { parseUnits } from 'viem'
-import type { Address } from 'viem'
 import { Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { DateTimePicker } from '@/components/ui/date-time-picker'
 import { TokenAmountInput } from '@/components/ui/token-amount-input'
@@ -20,8 +18,8 @@ import { Separator } from '@/components/ui/separator'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ImageUploadField } from '@/components/ui/image-upload'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
-import { erc721Abi } from '@/lib/abis/erc721'
-import { redeemNftSettlementAbi } from '@/lib/abis/redeem-nft-settlement'
+import { NftFields } from '@/components/redeem/nft-fields'
+import { MerchFields, type VariantRow } from '@/components/redeem/merch-fields'
 import { useIsAdmin, useIsPartnerRedeem } from '@/hooks/useOnChainRoles'
 import { useCreateRedeemItem } from '@/hooks/useCreateRedeemItem'
 import { getPaymentTokens } from '@/lib/tokens'
@@ -29,13 +27,6 @@ import { toastSuccess, toastError } from '@/lib/toast'
 import { JUNO_PTS_DECIMALS } from '@/types/redeem'
 import type { RedeemKind, RedeemTier } from '@/types/redeem'
 import { getContractAddresses } from '@/config/contract-addresses'
-import { useContractAddresses } from '@/hooks/useContractAddresses'
-
-interface VariantRow {
-    label: string
-    sku: string
-    stock: string // empty = unlimited
-}
 
 export default function ListRedeemItemPage() {
     const router = useRouter()
@@ -335,165 +326,6 @@ export default function ListRedeemItemPage() {
                     </Button>
                 </CardContent>
             </Card>
-        </div>
-    )
-}
-
-function NftFields({
-    tier,
-    nftContract,
-    nftTokenId,
-    setNftContract,
-    setNftTokenId,
-}: {
-    tier: RedeemTier
-    nftContract: string
-    nftTokenId: string
-    setNftContract: (v: string) => void
-    setNftTokenId: (v: string) => void
-}) {
-    const { redeemNftSettlement: REDEEM_NFT_SETTLEMENT_ADDRESS } = useContractAddresses()
-    const { address } = useAccount()
-    const publicClient = usePublicClient()
-    const { writeContractAsync } = useWriteContract()
-    const [depositing, setDepositing] = useState(false)
-
-    const { data: treasury } = useReadContract({
-        address: REDEEM_NFT_SETTLEMENT_ADDRESS,
-        abi: redeemNftSettlementAbi,
-        functionName: 'treasury',
-        query: { enabled: Boolean(REDEEM_NFT_SETTLEMENT_ADDRESS) },
-    })
-
-    const tokenIdBigint = (() => {
-        try {
-            return nftTokenId ? BigInt(nftTokenId) : null
-        } catch {
-            return null
-        }
-    })()
-
-    const { data: owner, refetch: refetchOwner } = useReadContract({
-        address: nftContract && nftContract.startsWith('0x') ? (nftContract as Address) : undefined,
-        abi: erc721Abi,
-        functionName: 'ownerOf',
-        args: tokenIdBigint != null ? [tokenIdBigint] : undefined,
-        query: { enabled: Boolean(nftContract && tokenIdBigint != null) },
-    })
-
-    const vaulted = Boolean(owner && treasury && owner.toLowerCase() === treasury.toLowerCase())
-
-    const depositToVault = async () => {
-        if (!nftContract || tokenIdBigint == null || !treasury || !address || !publicClient) return
-        setDepositing(true)
-        try {
-            const hash = await writeContractAsync({
-                address: nftContract as Address,
-                abi: erc721Abi,
-                functionName: 'transferFrom',
-                args: [address, treasury, tokenIdBigint],
-            })
-            await publicClient.waitForTransactionReceipt({ hash })
-            await refetchOwner()
-            toastSuccess('NFT deposited to the Redeem vault')
-        } catch (err) {
-            toastError(err instanceof Error ? err.message : 'Deposit failed')
-        } finally {
-            setDepositing(false)
-        }
-    }
-
-    return (
-        <div className="space-y-3">
-            <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                    <Label htmlFor="nftContract">NFT contract</Label>
-                    <Input id="nftContract" placeholder="0x…" value={nftContract} onChange={(e) => setNftContract(e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                    <Label htmlFor="nftTokenId">Token ID</Label>
-                    <Input id="nftTokenId" type="number" min="0" value={nftTokenId} onChange={(e) => setNftTokenId(e.target.value)} />
-                </div>
-            </div>
-            {tier === 'registered' && (
-                <div className="rounded-md border p-3 text-sm">
-                    {!REDEEM_NFT_SETTLEMENT_ADDRESS ? (
-                        <p className="text-muted-foreground">Redeem NFT settlement isn&apos;t deployed yet.</p>
-                    ) : vaulted ? (
-                        <p className="text-emerald-600">Deposited — this token is held by the Redeem vault, ready to list.</p>
-                    ) : (
-                        <div className="space-y-2">
-                            <p className="text-muted-foreground">
-                                Registered NFTs must be transferred into the Redeem vault before listing — this locks the
-                                token here; once a redemption order exists it can no longer be withdrawn.
-                            </p>
-                            <Button type="button" size="sm" disabled={!nftContract || tokenIdBigint == null || depositing} isLoading={depositing} loadingText="Depositing…" onClick={depositToVault}>
-                                Deposit to vault
-                            </Button>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    )
-}
-
-function MerchFields({
-    stock,
-    setStock,
-    thailandOnly,
-    setThailandOnly,
-    variants,
-    addVariant,
-    updateVariant,
-    removeVariant,
-}: {
-    stock: string
-    setStock: (v: string) => void
-    thailandOnly: boolean
-    setThailandOnly: (v: boolean) => void
-    variants: VariantRow[]
-    addVariant: () => void
-    updateVariant: (i: number, patch: Partial<VariantRow>) => void
-    removeVariant: (i: number) => void
-}) {
-    return (
-        <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-                <div>
-                    <Label htmlFor="thailandOnly">Ship within Thailand only</Label>
-                    <p className="text-xs text-muted-foreground">
-                        Buyers outside Thailand can&apos;t order this item. Leave off if you can post it abroad.
-                    </p>
-                </div>
-                <Switch id="thailandOnly" checked={thailandOnly} onCheckedChange={setThailandOnly} />
-            </div>
-
-            {variants.length === 0 && (
-                <div className="space-y-1.5">
-                    <Label htmlFor="stock">Stock (blank = unlimited)</Label>
-                    <Input id="stock" type="number" min="0" value={stock} onChange={(e) => setStock(e.target.value)} />
-                </div>
-            )}
-
-            <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                    <Label>Options (size / color, optional)</Label>
-                    <Button type="button" size="sm" variant="outline" onClick={addVariant}>
-                        Add option
-                    </Button>
-                </div>
-                {variants.map((v, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                        <Input placeholder="Label, e.g. Size L / Black" value={v.label} onChange={(e) => updateVariant(i, { label: e.target.value })} />
-                        <Input placeholder="SKU" className="w-28" value={v.sku} onChange={(e) => updateVariant(i, { sku: e.target.value })} />
-                        <Input placeholder="Stock" type="number" min="0" className="w-24" value={v.stock} onChange={(e) => updateVariant(i, { stock: e.target.value })} />
-                        <Button type="button" size="sm" variant="ghost" onClick={() => removeVariant(i)}>
-                            Remove
-                        </Button>
-                    </div>
-                ))}
-            </div>
         </div>
     )
 }

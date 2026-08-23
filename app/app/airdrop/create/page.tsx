@@ -1,34 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useAccount, usePublicClient, useReadContracts } from 'wagmi'
-import { formatUnits, parseUnits } from 'viem'
+import { parseUnits } from 'viem'
 import type { Address } from 'viem'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { DateTimePicker } from '@/components/ui/date-time-picker'
-import { ImageUploadField } from '@/components/ui/image-upload'
 import { erc20Abi } from '@/lib/abis/erc20'
-
-// Leaflet touches `window` at module load time, so it can only ever run client-side.
-const LocationPickerMap = dynamic(() => import('@/components/airdrop/location-picker-map').then((m) => m.LocationPickerMap), {
-    ssr: false,
-    loading: () => <div className="h-64 w-full animate-pulse rounded-md border bg-muted" />,
-})
+import { StepTokenAmount } from '@/components/airdrop/create-steps/step-token-amount'
+import { StepGas } from '@/components/airdrop/create-steps/step-gas'
+import { StepDetails } from '@/components/airdrop/create-steps/step-details'
+import { StepRestrictions } from '@/components/airdrop/create-steps/step-restrictions'
 import { useCreateAirdropCampaign } from '@/hooks/useAirdropActions'
 import { TxProgressDialog } from '@/components/airdrop/tx-progress'
 import { estimateAirdropGasDeposit } from '@/lib/onchain/airdrop-gas'
 import { toastSuccess, toastError } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import type { AirdropAmountMode, AirdropGasMode, AirdropVisibility } from '@/types/airdrop'
-import { ArrowLeft, ArrowRight, Check, CircleHelp } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import Link from 'next/link'
 import { useContractAddresses } from '@/hooks/useContractAddresses'
 
@@ -123,6 +112,18 @@ export default function CreateAirdropPage() {
         amountMode === 'random' && Number(maxAmount) > 0 ? (maxForAllClaimants ?? maxAmount) : null
     const totalTooLowForRandom =
         minRequiredTotal != null && DECIMAL_RE.test(totalAmount.trim()) && compareDecimalStrings(totalAmount.trim(), minRequiredTotal) < 0
+
+    const totalReadOnly = (amountMode === 'fixed' && limited && autoTotal != null) || (amountMode === 'random' && minRequiredTotal != null)
+    const totalHelperText =
+        amountMode === 'fixed' && limited
+            ? 'Calculated automatically: amount per claim × number of claimants.'
+            : amountMode === 'random'
+              ? (minRequiredTotal != null
+                    ? limited
+                        ? `Calculated automatically: max per claim × number of claimants (${minRequiredTotal} ${symbol}) — enough for everyone to hit the maximum. Whatever isn't claimed comes back to you.`
+                        : `Calculated automatically: at least max per claim (${minRequiredTotal} ${symbol}), since one claimer can draw that much.`
+                    : 'Set min and max per claim to see the total required.')
+              : 'The campaign runs until this pool is claimed out.'
 
     // Relayer mode needs a maxClaimants cap to size its gas escrow (contract-enforced — see
     // AirdropEscrow.sol's "relayer mode requires a maxClaimants cap"), so it's not a valid choice
@@ -281,262 +282,75 @@ export default function CreateAirdropPage() {
             </div>
 
             {step === 0 && (
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">Token &amp; amount</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-1.5">
-                        <Label htmlFor="token">Token contract address</Label>
-                        <Input id="token" placeholder="0x…" value={tokenAddress} onChange={(e) => setTokenAddress(e.target.value.trim())} />
-                        {validToken && tokenSymbol && tokenDecimals != null && (
-                            <p className="text-xs text-muted-foreground">
-                                Detected: {tokenSymbol} ({tokenDecimals} decimals)
-                            </p>
-                        )}
-                        {validToken && tokenMeta && !tokenSymbol && (
-                            <p className="text-xs text-destructive">Couldn&apos;t read this token — check the address and chain.</p>
-                        )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <Label>Distribution</Label>
-                        <RadioGroup value={amountMode} onValueChange={(v) => setAmountMode(v as AirdropAmountMode)} className="grid-cols-1 sm:grid-cols-2">
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="fixed" id="mode-fixed" />
-                                Fixed amount
-                            </label>
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="random" id="mode-random" />
-                                Random amount
-                            </label>
-                        </RadioGroup>
-                    </div>
-
-                    {amountMode === 'fixed' ? (
-                        <div className="space-y-1.5">
-                            <Label htmlFor="fixedAmount">Amount per claim{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                            <Input id="fixedAmount" type="number" min="0" value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)} />
-                        </div>
-                    ) : (
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="minAmount">Min per claim{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                                <Input id="minAmount" type="number" min="0" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="maxAmount">Max per claim{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                                <Input id="maxAmount" type="number" min="0" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} />
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="space-y-1.5">
-                        <Label>Number of claimants</Label>
-                        <RadioGroup value={limited ? 'limited' : 'unlimited'} onValueChange={(v) => setLimited(v === 'limited')} className="grid-cols-1 sm:grid-cols-2">
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="limited" id="claimants-limited" />
-                                Limited
-                            </label>
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="unlimited" id="claimants-unlimited" />
-                                Unlimited (until it runs out)
-                            </label>
-                        </RadioGroup>
-                        {limited && (
-                            <Input
-                                type="number"
-                                min="1"
-                                placeholder="Number of people"
-                                value={maxClaimants}
-                                onChange={(e) => setMaxClaimants(e.target.value)}
-                            />
-                        )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <Label htmlFor="totalAmount">Total giveaway amount{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                        <Input
-                            id="totalAmount"
-                            type="number"
-                            min="0"
-                            value={totalAmount}
-                            onChange={(e) => setTotalAmount(e.target.value)}
-                            readOnly={(amountMode === 'fixed' && limited && autoTotal != null) || (amountMode === 'random' && minRequiredTotal != null)}
-                            className={cn(totalTooLowForRandom && 'border-destructive focus-visible:ring-destructive')}
-                        />
-                        {amountMode === 'fixed' && limited ? (
-                            <p className="text-xs text-muted-foreground">Calculated automatically: amount per claim × number of claimants.</p>
-                        ) : amountMode === 'random' ? (
-                            <p className={cn('text-xs', totalTooLowForRandom ? 'text-destructive' : 'text-muted-foreground')}>
-                                {minRequiredTotal != null
-                                    ? limited
-                                        ? `Calculated automatically: max per claim × number of claimants (${minRequiredTotal} ${symbol}) — enough for everyone to hit the maximum. Whatever isn't claimed comes back to you.`
-                                        : `Calculated automatically: at least max per claim (${minRequiredTotal} ${symbol}), since one claimer can draw that much.`
-                                    : 'Set min and max per claim to see the total required.'}
-                            </p>
-                        ) : (
-                            <p className="text-xs text-muted-foreground">The campaign runs until this pool is claimed out.</p>
-                        )}
-                        {preview && <p className="text-xs font-medium">{preview}</p>}
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="hasExpiry">Set an expiry</Label>
-                            <Switch id="hasExpiry" checked={hasExpiry} onCheckedChange={setHasExpiry} />
-                        </div>
-                        {hasExpiry && <DateTimePicker value={expiresAt} onChange={setExpiresAt} />}
-                    </div>
-                </CardContent>
-            </Card>
+                <StepTokenAmount
+                    tokenAddress={tokenAddress}
+                    setTokenAddress={setTokenAddress}
+                    validToken={validToken}
+                    tokenSymbol={tokenSymbol}
+                    tokenDecimals={tokenDecimals}
+                    tokenMetaLoaded={Boolean(tokenMeta)}
+                    amountMode={amountMode}
+                    setAmountMode={setAmountMode}
+                    fixedAmount={fixedAmount}
+                    setFixedAmount={setFixedAmount}
+                    minAmount={minAmount}
+                    setMinAmount={setMinAmount}
+                    maxAmount={maxAmount}
+                    setMaxAmount={setMaxAmount}
+                    limited={limited}
+                    setLimited={setLimited}
+                    maxClaimants={maxClaimants}
+                    setMaxClaimants={setMaxClaimants}
+                    totalAmount={totalAmount}
+                    setTotalAmount={setTotalAmount}
+                    totalReadOnly={totalReadOnly}
+                    totalTooLowForRandom={totalTooLowForRandom}
+                    totalHelperText={totalHelperText}
+                    preview={preview}
+                    hasExpiry={hasExpiry}
+                    setHasExpiry={setHasExpiry}
+                    expiresAt={expiresAt}
+                    setExpiresAt={setExpiresAt}
+                />
             )}
 
-            {step === 1 && (limited ? (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base">Who pays gas to claim?</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <RadioGroup value={gasMode} onValueChange={(v) => setGasMode(v as AirdropGasMode)} className="grid-cols-1">
-                            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
-                                <RadioGroupItem value="self" id="gas-self" className="mt-0.5" />
-                                <span>
-                                    <span className="font-medium">Claimers pay their own gas</span>
-                                    <br />
-                                    <span className="text-muted-foreground">No deposit needed from you.</span>
-                                </span>
-                            </label>
-                            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
-                                <RadioGroupItem value="relayer" id="gas-relayer" className="mt-0.5" />
-                                <span>
-                                    <span className="font-medium">I pay gas for claimers</span>
-                                    <br />
-                                    <span className="text-muted-foreground">
-                                        Claimers pay nothing. You need to deposit KUB to the relayer wallet to cover their gas.
-                                    </span>
-                                </span>
-                            </label>
-                        </RadioGroup>
-                        {gasMode === 'relayer' && (
-                            <div className="space-y-1.5">
-                                {RELAYER_ADDRESS ? (
-                                    <p className="text-xs text-muted-foreground">
-                                        {gasDepositPreview != null
-                                            ? `Estimated gas deposit: ~${formatUnits(gasDepositPreview, 18)} KUB, held in the campaign contract and refundable via "Reclaim gas" once the campaign ends.`
-                                            : 'Set a limited number of claimants to see the estimated gas deposit.'}
-                                    </p>
-                                ) : (
-                                    <p className="text-xs text-destructive">The relayer service is not configured yet — ask an admin.</p>
-                                )}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-            ) : (
-                <Card>
-                    <CardContent className="pt-6">
-                        <p className="text-sm text-muted-foreground">
-                            <span className="font-medium text-foreground">Claimers pay their own gas.</span> Unlimited campaigns can&apos;t use
-                            the &quot;I pay gas for claimers&quot; option — it escrows gas per claim slot, which needs a fixed number of
-                            claimants. Switch to Limited above to enable it.
-                        </p>
-                    </CardContent>
-                </Card>
-            ))}
+            {step === 1 && (
+                <StepGas
+                    limited={limited}
+                    gasMode={gasMode}
+                    setGasMode={setGasMode}
+                    relayerAddress={RELAYER_ADDRESS}
+                    gasDepositPreview={gasDepositPreview}
+                />
+            )}
 
             {step === 2 && (
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-1.5">
-                        <Label htmlFor="title">Title</Label>
-                        <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} />
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label htmlFor="description">Description</Label>
-                        <Textarea id="description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
-                    </div>
-                    <ImageUploadField value={coverImageUrl} onChange={setCoverImageUrl} label="Cover image" />
-                    <div className="space-y-1.5">
-                        <Label>Who can find this?</Label>
-                        <RadioGroup value={visibility} onValueChange={(v) => setVisibility(v as AirdropVisibility)} className="grid-cols-1 sm:grid-cols-2">
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="public" id="visibility-public" />
-                                Public
-                            </label>
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="unlisted" id="visibility-unlisted" />
-                                QR code / link only
-                            </label>
-                        </RadioGroup>
-                        <p className="text-xs text-muted-foreground">
-                            {visibility === 'public'
-                                ? 'Shown on the Browse Airdrops page.'
-                                : "Not listed anywhere — only reachable by whoever has the QR code or share link."}
-                        </p>
-                    </div>
-                </CardContent>
-            </Card>
+                <StepDetails
+                    title={title}
+                    setTitle={setTitle}
+                    description={description}
+                    setDescription={setDescription}
+                    coverImageUrl={coverImageUrl}
+                    setCoverImageUrl={setCoverImageUrl}
+                    visibility={visibility}
+                    setVisibility={setVisibility}
+                />
             )}
 
             {step === 3 && (
-            <>
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">Optional restrictions</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="locationRestricted">Limit to a location</Label>
-                            <Switch id="locationRestricted" checked={locationRestricted} onCheckedChange={setLocationRestricted} />
-                        </div>
-                        {locationRestricted && (
-                            <div className="space-y-2">
-                                <p className="text-xs text-muted-foreground">Click the map to set the center, or drag the pin. Use the button for your current location.</p>
-                                <LocationPickerMap
-                                    lat={locationLat}
-                                    lng={locationLng}
-                                    radiusM={Number(locationRadiusM) || 0}
-                                    onChange={(lat, lng) => {
-                                        setLocationLat(lat)
-                                        setLocationLng(lng)
-                                    }}
-                                />
-                                <Button type="button" variant="outline" size="sm" onClick={captureLocation}>
-                                    {locationLat != null ? 'Update my location' : 'Use my current location as center'}
-                                </Button>
-                                {locationLat != null && locationLng != null && (
-                                    <p className="text-xs text-muted-foreground">
-                                        Center: {locationLat.toFixed(5)}, {locationLng.toFixed(5)}
-                                    </p>
-                                )}
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="radius">Radius (meters)</Label>
-                                    <Input id="radius" type="number" min="1" value={locationRadiusM} onChange={(e) => setLocationRadiusM(e.target.value)} />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <Label htmlFor="ipDedupe">Block repeat claims from the same network</Label>
-                            <p className="text-xs text-muted-foreground">
-                                Rejects a second claim attempt from the same IP address.
-                                {!locationRestricted && ' Recommended if claimers can enter an address without connecting a wallet.'}
-                            </p>
-                        </div>
-                        <Switch id="ipDedupe" checked={ipDedupeEnabled} onCheckedChange={setIpDedupeEnabled} />
-                    </div>
-                </CardContent>
-            </Card>
-
-            <div className="rounded-xl border bg-muted/40 p-4 text-sm text-muted-foreground"><div className="flex items-start gap-2"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0" /><p>Review your token address, total pool, and visibility before creating. Blockchain transactions cannot be undone.</p></div></div>
-            </>
+                <StepRestrictions
+                    locationRestricted={locationRestricted}
+                    setLocationRestricted={setLocationRestricted}
+                    locationLat={locationLat}
+                    locationLng={locationLng}
+                    setLocationLat={setLocationLat}
+                    setLocationLng={setLocationLng}
+                    locationRadiusM={locationRadiusM}
+                    setLocationRadiusM={setLocationRadiusM}
+                    captureLocation={captureLocation}
+                    ipDedupeEnabled={ipDedupeEnabled}
+                    setIpDedupeEnabled={setIpDedupeEnabled}
+                />
             )}
 
             <div className="flex gap-3">
