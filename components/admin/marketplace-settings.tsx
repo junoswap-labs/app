@@ -12,9 +12,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { nftMarketplaceAdminAbi } from '@/lib/abis/nft-marketplace'
 import { rwaEscrowAdminAbi } from '@/lib/abis/rwa-escrow'
 import { toastSuccess, toastError } from '@/lib/toast'
-
-const NFT_MARKETPLACE_ADDRESS = process.env.NEXT_PUBLIC_NFT_MARKETPLACE_ADDRESS as Address | undefined
-const RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_RWA_ESCROW_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 /**
  * Platform-level contract admin — fee/token-allowlist/pause controls that previously had zero UI
@@ -29,6 +27,7 @@ const RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_RWA_ESCROW_ADDRESS as Address
  * enforces it — a mismatched wallet's tx would simply revert.
  */
 export function MarketplaceSettings() {
+    const { nftMarketplace: NFT_MARKETPLACE_ADDRESS, rwaEscrow: RWA_ESCROW_ADDRESS } = useContractAddresses()
     if (!NFT_MARKETPLACE_ADDRESS && !RWA_ESCROW_ADDRESS) {
         return (
             <EmptyState

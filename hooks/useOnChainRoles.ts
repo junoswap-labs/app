@@ -4,8 +4,7 @@ import { useAccount, useReadContract } from 'wagmi'
 import type { Address } from 'viem'
 import { permissionRegistryAbi } from '@/lib/abis/permission-registry'
 import { isDevRoleBypassActive } from '@/lib/onchain/dev-bypass'
-
-const REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 /**
  * Admin/Partner/Authorize are on-chain roles (PermissionRegistry.sol) — never DB/session state.
@@ -16,6 +15,7 @@ const REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS as 
  * role to true for any connected wallet — skips the chain read entirely.
  */
 function useRole(fn: 'isAdmin' | 'isPartnerMarketplace' | 'isPartnerRedeem' | 'isAuthorized', address?: Address) {
+    const { permissionRegistry: REGISTRY_ADDRESS } = useContractAddresses()
     const bypass = isDevRoleBypassActive() && Boolean(address)
     const { data } = useReadContract({
         address: REGISTRY_ADDRESS,

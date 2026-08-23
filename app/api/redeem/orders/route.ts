@@ -5,6 +5,7 @@ import { getSessionWallet } from '@/lib/auth/session'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { computeRedeemOfferHash, redeemOfferDomain, REDEEM_OFFER_TYPES, type RedeemOffer } from '@/lib/eip712'
 import type { ShippingInfo } from '@/types/redeem'
+import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
 
 async function logOrderCreated(orderId: string, actorWallet: string, metadata: Record<string, unknown>) {
     await supabaseAdmin().from('audit_logs').insert({
@@ -119,9 +120,9 @@ export async function POST(request: NextRequest) {
 
     if (item.kind === 'nft') {
         const operatorKey = process.env.REDEEM_OPERATOR_PRIVATE_KEY
-        const operatorAddress = process.env.NEXT_PUBLIC_REDEEM_OPERATOR_ADDRESS
-        const settlementAddress = process.env.NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS
-        const junoPtsAddress = process.env.NEXT_PUBLIC_JUNO_PTS_ADDRESS
+        const operatorAddress = CONTRACT_ADDRESSES.redeemOperator
+        const settlementAddress = CONTRACT_ADDRESSES.redeemNftSettlement
+        const junoPtsAddress = CONTRACT_ADDRESSES.junoPts
         const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 96)
         if (!operatorKey || !operatorAddress || !settlementAddress || !junoPtsAddress) {
             return NextResponse.json({ error: 'Redeem NFT settlement is not configured yet' }, { status: 500 })
@@ -218,7 +219,7 @@ export async function POST(request: NextRequest) {
     }
 
     const escrowListingId = `0x${randomBytes(32).toString('hex')}`
-    const officialTreasury = process.env.NEXT_PUBLIC_REDEEM_OFFICIAL_TREASURY_ADDRESS
+    const officialTreasury = CONTRACT_ADDRESSES.redeemOfficialTreasury
     const seller = item.tier === 'registered' ? item.payout_wallet : officialTreasury
     if (!seller) {
         return NextResponse.json({ error: 'no payout destination configured for this item' }, { status: 500 })

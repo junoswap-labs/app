@@ -10,8 +10,7 @@ import { ensureTokenAllowance } from '@/lib/onchain/erc20'
 import { useSyncRefresh } from '@/hooks/useSyncRefresh'
 import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
 import type { ShippingInfo } from '@/types/redeem'
-
-const REDEEM_RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 interface CreateRedeemOrderInput {
     itemId: number
@@ -50,6 +49,7 @@ interface MerchEscrowResponse {
  * back from Supabase once the poller has processed the confirmed tx, never assumed from the receipt.
  */
 export function useCreateRedeemOrder() {
+    const { redeemRwaEscrow: REDEEM_RWA_ESCROW_ADDRESS, junoPts: junoPtsAddress } = useContractAddresses()
     const { address } = useAccount()
     const { writeContractAsync } = useWriteContract()
     const write = useSimulatedWrite()
@@ -128,7 +128,6 @@ export function useCreateRedeemOrder() {
                 if (!REDEEM_RWA_ESCROW_ADDRESS) throw new Error('Redeem escrow is not deployed yet')
                 const { escrow } = body
                 if (BigInt(escrow.pricePoints) > 0n) {
-                    const junoPtsAddress = process.env.NEXT_PUBLIC_JUNO_PTS_ADDRESS as Address | undefined
                     if (!junoPtsAddress) throw new Error('JunoPts is not deployed yet')
                     const burnHash = await write({
                         address: junoPtsAddress,

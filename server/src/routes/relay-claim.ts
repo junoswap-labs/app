@@ -55,6 +55,17 @@ relayClaim.post('/relay-claim', async (c) => {
             functionName: 'getCampaign',
             args: [campaignId as `0x${string}`],
         })
+        // A campaignId this deployment has never seen reads back as the zero struct, whose
+        // gasDeposit is 0 — indistinguishable from a drained campaign unless checked separately.
+        // In practice it means this service is pointed at a different AirdropEscrow than the app.
+        if (campaign.creator === '0x0000000000000000000000000000000000000000') {
+            settle(campaignId, recipient, false)
+            return c.json(
+                { error: 'campaign not found on this AirdropEscrow deployment — the relayer is pointed at a different contract address than the app' },
+                404
+            )
+        }
+
         const remainingGasDeposit = campaign.gasDeposit - campaign.gasSpent
         if (remainingGasDeposit <= 0n) {
             settle(campaignId, recipient, false)

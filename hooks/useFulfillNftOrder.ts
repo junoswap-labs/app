@@ -8,8 +8,7 @@ import { supabaseBrowser } from '@/lib/supabase/client'
 import { useSyncRefresh } from '@/hooks/useSyncRefresh'
 import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
 import type { Database } from '@/types/supabase'
-
-const NFT_MARKETPLACE_ADDRESS = process.env.NEXT_PUBLIC_NFT_MARKETPLACE_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 type NftOrderRow = Database['public']['Tables']['nft_orders']['Row']
 
@@ -39,6 +38,7 @@ export async function loadOrder(orderHash: string) {
 
 /** Buy — the one on-chain tx in the whole NFT flow (listing itself was gasless). */
 export function useFulfillNftOrder() {
+    const { nftMarketplace: NFT_MARKETPLACE_ADDRESS } = useContractAddresses()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()

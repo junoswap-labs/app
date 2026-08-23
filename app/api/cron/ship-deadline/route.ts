@@ -3,6 +3,7 @@ import { rwaEscrowDeadlinesAbi } from '@/lib/abis/rwa-escrow'
 import { serverPublicClient } from '@/lib/onchain/public-client'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { cachedFetch } from '@/lib/server-cache'
+import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
 
 const WARNING_WINDOW_SECONDS = 24 * 60 * 60 // flag orders within 24h of their deadline
 
@@ -48,7 +49,7 @@ async function readDeadlines(rwaEscrowAddress: `0x${string}`) {
 export async function GET(request: NextRequest) {
     if (!isAuthorizedCron(request)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
-    const rwaEscrowAddress = process.env.NEXT_PUBLIC_RWA_ESCROW_ADDRESS as `0x${string}` | undefined
+    const rwaEscrowAddress = CONTRACT_ADDRESSES.rwaEscrow
     if (!rwaEscrowAddress) return NextResponse.json({ ok: true, results: { shipping: [], receiving: [] } })
 
     const { shipDeadline, autoReleaseDeadline } = await readDeadlines(rwaEscrowAddress)

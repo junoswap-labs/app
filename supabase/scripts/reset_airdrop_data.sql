@@ -14,9 +14,11 @@
 
 begin;
 
--- Children first — airdrop_claims/airdrop_claim_attempts reference airdrop_campaigns.
+-- Children first — every table with a foreign key to airdrop_campaigns(id). Miss one and the
+-- delete fails on that constraint (airdrop_gas_reimbursements arrived later, in migration 0010).
 delete from airdrop_claim_attempts;
 delete from airdrop_claims;
+delete from airdrop_gas_reimbursements;
 delete from airdrop_campaigns;
 
 -- Drop the cursor so services/sync/poller.ts starts again from target.deployBlock.

@@ -7,11 +7,11 @@ import { nftMarketplaceAbi } from '@/lib/abis/nft-marketplace'
 import { useSyncRefresh } from '@/hooks/useSyncRefresh'
 import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
 import { loadOrder } from '@/hooks/useFulfillNftOrder'
-
-const NFT_MARKETPLACE_ADDRESS = process.env.NEXT_PUBLIC_NFT_MARKETPLACE_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 /** On-chain cancel is mandatory — a DB-only delist would leave the signature redeemable forever. */
 export function useCancelNftOrder() {
+    const { nftMarketplace: NFT_MARKETPLACE_ADDRESS } = useContractAddresses()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()

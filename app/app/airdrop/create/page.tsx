@@ -30,8 +30,7 @@ import { cn } from '@/lib/utils'
 import type { AirdropAmountMode, AirdropGasMode, AirdropVisibility } from '@/types/airdrop'
 import { ArrowLeft, ArrowRight, Check, CircleHelp } from 'lucide-react'
 import Link from 'next/link'
-
-const RELAYER_ADDRESS = process.env.NEXT_PUBLIC_AIRDROP_RELAYER_ADDRESS
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 
@@ -63,6 +62,7 @@ function compareDecimalStrings(a: string, b: string): number {
 }
 
 export default function CreateAirdropPage() {
+    const { airdropRelayer: RELAYER_ADDRESS } = useContractAddresses()
     const router = useRouter()
     const { isConnected } = useAccount()
     const publicClient = usePublicClient()
@@ -112,18 +112,15 @@ export default function CreateAirdropPage() {
     const autoTotal =
         amountMode === 'fixed' && limited && maxClaimantsNum > 0 ? multiplyDecimalString(fixedAmount, maxClaimantsNum) : null
 
-    // Random mode: mirrors AirdropEscrow.sol's createCampaign() feasibility checks so the form
-    // catches them before submit — totalAmount must cover BOTH maxAmount on its own ("maxAmount
-    // exceeds totalAmount", required unconditionally — a single claimant can't be authorized more
-    // than the whole pot) and, when Limited, minAmount * maxClaimants ("totalAmount cannot cover
-    // maxClaimants at minAmount"). The stricter (larger) of the two wins.
-    const minForAllClaimants = limited && maxClaimantsNum > 0 ? multiplyDecimalString(minAmount, maxClaimantsNum) : null
+    // Random mode: the pool has to cover the *worst case*, maxAmount * maxClaimants, not just the
+    // contract's own floor (maxAmount alone, plus minAmount * maxClaimants when Limited). Funding
+    // only the floor makes the campaign lie: with min 1 / max 1000 over 10 claimants, a 1000 pool
+    // lets the first claimer draw up to 999 and the rest split crumbs, even though the form
+    // promised "up to 10 people, each getting between 1 and 1000". Sizing for the possibility is
+    // what makes that sentence true; the creator reclaims whatever goes unclaimed.
+    const maxForAllClaimants = limited && maxClaimantsNum > 0 ? multiplyDecimalString(maxAmount, maxClaimantsNum) : null
     const minRequiredTotal =
-        amountMode === 'random' && Number(maxAmount) > 0
-            ? minForAllClaimants != null && compareDecimalStrings(minForAllClaimants, maxAmount) > 0
-                ? minForAllClaimants
-                : maxAmount
-            : null
+        amountMode === 'random' && Number(maxAmount) > 0 ? (maxForAllClaimants ?? maxAmount) : null
     const totalTooLowForRandom =
         minRequiredTotal != null && DECIMAL_RE.test(totalAmount.trim()) && compareDecimalStrings(totalAmount.trim(), minRequiredTotal) < 0
 
@@ -373,7 +370,9 @@ export default function CreateAirdropPage() {
                         ) : amountMode === 'random' ? (
                             <p className={cn('text-xs', totalTooLowForRandom ? 'text-destructive' : 'text-muted-foreground')}>
                                 {minRequiredTotal != null
-                                    ? `Calculated automatically: the minimum required to cover max per claim${limited ? ' and every claimant\'s minimum' : ''} (${minRequiredTotal} ${symbol}).`
+                                    ? limited
+                                        ? `Calculated automatically: max per claim × number of claimants (${minRequiredTotal} ${symbol}) — enough for everyone to hit the maximum. Whatever isn't claimed comes back to you.`
+                                        : `Calculated automatically: at least max per claim (${minRequiredTotal} ${symbol}), since one claimer can draw that much.`
                                     : 'Set min and max per claim to see the total required.'}
                             </p>
                         ) : (

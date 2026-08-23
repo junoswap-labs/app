@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import type { Address } from 'viem'
 import { getSessionWallet } from '@/lib/auth/session'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { serverPublicClient } from '@/lib/onchain/public-client'
@@ -8,6 +7,7 @@ import { isAppHostedImageUrl } from '@/lib/image'
 import { campaignShareHash } from '@/lib/onchain/airdrop-share'
 import { airdropEscrowAbi } from '@/lib/abis/airdrop'
 import type { Database } from '@/types/supabase'
+import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
 
 type CampaignUpdate = Database['public']['Tables']['airdrop_campaigns']['Update']
 
@@ -22,7 +22,7 @@ const CAMPAIGN_STATUS = ['active', 'closed', 'reclaimed'] as const
  * `ignoreDuplicates`, so it won't clobber the row afterwards — it only backfills tx_hash.
  */
 async function seedFromChain(id: string, wallet: string) {
-    const escrow = process.env.NEXT_PUBLIC_AIRDROP_ESCROW_ADDRESS as Address | undefined
+    const escrow = CONTRACT_ADDRESSES.airdropEscrow
     if (!escrow) return { error: 'AirdropEscrow is not deployed yet', status: 500 as const }
 
     const campaign = await serverPublicClient().readContract({

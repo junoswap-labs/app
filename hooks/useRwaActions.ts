@@ -7,8 +7,7 @@ import { rwaEscrowAbi } from '@/lib/abis/rwa-escrow'
 import { ensureTokenAllowance } from '@/lib/onchain/erc20'
 import { useSyncRefresh } from '@/hooks/useSyncRefresh'
 import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
-
-const RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_RWA_ESCROW_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 /**
  * Shared plumbing for every RwaEscrow write action — the exact 4-step Clean Workflow from
@@ -18,6 +17,7 @@ const RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_RWA_ESCROW_ADDRESS as Address
  * (functionName is a plain string here) so that tradeoff stays contained to one file.
  */
 function useRwaWrite(functionName: string) {
+    const { rwaEscrow: RWA_ESCROW_ADDRESS } = useContractAddresses()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()
@@ -48,6 +48,7 @@ function useRwaWrite(functionName: string) {
  *  assumed, so a partial prior approval (e.g. from a previous failed attempt) is topped up rather
  *  than skipped or over-approved. */
 export function useFundRwaOrder() {
+    const { rwaEscrow: RWA_ESCROW_ADDRESS } = useContractAddresses()
     const { address } = useAccount()
     const { writeContractAsync } = useWriteContract()
     const write = useSimulatedWrite()

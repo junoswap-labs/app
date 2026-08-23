@@ -8,8 +8,7 @@ import { Button } from '@/components/ui/button'
 import { useConfirmRedeemReceived, useExtendRedeemAutoRelease, useClaimRedeemShipmentTimeout } from '@/hooks/useRedeemMerchActions'
 import { useAsyncAction } from '@/hooks/useAsyncAction'
 import { AUTO_RELEASE_DEADLINE_MS } from '@/types/rwa'
-
-const REDEEM_RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 type ActionKey = 'confirm' | 'extend' | 'claim'
 
@@ -19,6 +18,7 @@ type ActionKey = 'confirm' | 'extend' | 'claim'
  * not mirrored into Supabase), so this reads it live instead of guessing from order history.
  */
 export function RedemptionAutoReleasePanel({ listingId, shippedAt }: { listingId: `0x${string}`; shippedAt: string }) {
+    const { redeemRwaEscrow: REDEEM_RWA_ESCROW_ADDRESS } = useContractAddresses()
     const { data: extensionSecs } = useReadContract({
         address: REDEEM_RWA_ESCROW_ADDRESS,
         abi: rwaEscrowAbi,

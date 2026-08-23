@@ -10,8 +10,7 @@ import { airdropEscrowAdminAbi } from '@/lib/abis/airdrop'
 import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
 import { useIsAdmin } from '@/hooks/useOnChainRoles'
 import { toastError, toastSuccess } from '@/lib/toast'
-
-const AIRDROP_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_AIRDROP_ESCROW_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 /**
  * Emergency stop for AirdropEscrow. Pausing blocks createCampaign/claim/claimFor only — reclaim()
@@ -19,6 +18,7 @@ const AIRDROP_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_AIRDROP_ESCROW_ADDRESS as
  * never traps a creator's funds.
  */
 export function AirdropPause() {
+    const { airdropEscrow: AIRDROP_ESCROW_ADDRESS } = useContractAddresses()
     const isAdmin = useIsAdmin()
     const write = useSimulatedWrite()
     const [busy, setBusy] = useState(false)

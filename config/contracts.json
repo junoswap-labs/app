@@ -1,0 +1,62 @@
+{
+    "$comment": "Directory of every contract and protocol wallet the app talks to, rendered by components/admin/contract-directory.tsx. Metadata only — the addresses themselves stay in env and are resolved through lib/contract-addresses.ts, because Next.js inlines NEXT_PUBLIC_* by matching the literal expression and cannot read one through a computed key.",
+    "contracts": [
+        {
+            "label": "PermissionRegistry",
+            "env": "NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS",
+            "note": "Source of truth for Admin / Partner / Authorize roles."
+        },
+        {
+            "label": "JunoPts",
+            "env": "NEXT_PUBLIC_JUNO_PTS_ADDRESS",
+            "note": "Loyalty points. A transfer needs one Registered side."
+        },
+        {
+            "label": "AirdropEscrow",
+            "env": "NEXT_PUBLIC_AIRDROP_ESCROW_ADDRESS",
+            "note": "Campaign pools and gas deposits."
+        },
+        {
+            "label": "RedeemNftSettlement",
+            "env": "NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS",
+            "note": "Settles NFT-kind redemptions, burns the points leg."
+        },
+        {
+            "label": "RwaEscrow · Redeem merch",
+            "env": "NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS",
+            "note": "Escrow dedicated to Redeem merch orders."
+        },
+        {
+            "label": "RwaEscrow · Marketplace",
+            "env": "NEXT_PUBLIC_RWA_ESCROW_ADDRESS",
+            "note": "Escrow for P2P RWA trades."
+        },
+        {
+            "label": "NftMarketplace",
+            "env": "NEXT_PUBLIC_NFT_MARKETPLACE_ADDRESS",
+            "note": "Gasless signed NFT orders."
+        }
+    ],
+    "wallets": [
+        {
+            "label": "Airdrop relayer",
+            "env": "NEXT_PUBLIC_AIRDROP_RELAYER_ADDRESS",
+            "note": "Submits claimFor() and is reimbursed from each campaign gas deposit — keep it funded with KUB."
+        },
+        {
+            "label": "Airdrop signer",
+            "env": "NEXT_PUBLIC_AIRDROP_SIGNER_ADDRESS",
+            "note": "Signs self-pay claim authorizations (BACKEND_SIGNER_ROLE)."
+        },
+        {
+            "label": "Redeem operator",
+            "env": "NEXT_PUBLIC_REDEEM_OPERATOR_ADDRESS",
+            "note": "Signs RedeemOffer payloads. Never sends transactions."
+        },
+        {
+            "label": "Official treasury",
+            "env": "NEXT_PUBLIC_REDEEM_OFFICIAL_TREASURY_ADDRESS",
+            "note": "Receives proceeds from Official-tier redemptions."
+        }
+    ]
+}

@@ -10,12 +10,16 @@ import { estimateAirdropGasDeposit } from '@/lib/onchain/airdrop-gas'
 import { useSyncRefresh } from '@/hooks/useSyncRefresh'
 import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
 import type { AirdropAmountMode, AirdropGasMode, AirdropVisibility } from '@/types/airdrop'
-
-const AIRDROP_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_AIRDROP_ESCROW_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 // Mirrors AirdropEscrow's enum orderings exactly (contracts/src/AirdropEscrow.sol).
 const AMOUNT_MODE: Record<AirdropAmountMode, number> = { fixed: 0, random: 1 }
 const GAS_MODE: Record<AirdropGasMode, number> = { self: 0, relayer: 1 }
+
+function useAirdropEscrowAddress() {
+    const { airdropEscrow } = useContractAddresses()
+    return { AIRDROP_ESCROW_ADDRESS: airdropEscrow }
+}
 
 function randomCampaignId(): `0x${string}` {
     const bytes = new Uint8Array(32)
@@ -66,6 +70,7 @@ const METADATA_ATTEMPTS = 4
 const METADATA_RETRY_DELAY_MS = 2_500
 
 export function useCreateAirdropCampaign() {
+    const { AIRDROP_ESCROW_ADDRESS } = useAirdropEscrowAddress()
     const { address } = useAccount()
     const { writeContractAsync } = useWriteContract()
     const write = useSimulatedWrite()
@@ -183,6 +188,7 @@ export interface ClaimAirdropInput {
  * relayed + confirmed claimFor() on-chain itself (relayer-pay) before responding.
  */
 export function useClaimAirdrop() {
+    const { AIRDROP_ESCROW_ADDRESS } = useAirdropEscrowAddress()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()
@@ -242,6 +248,7 @@ export function useClaimAirdrop() {
  *  deposit) becomes reclaimable straight away — the only way out for a campaign created without an
  *  expiry. Irreversible on-chain, see endCampaign() in contracts/src/AirdropEscrow.sol. */
 export function useEndAirdropCampaign() {
+    const { AIRDROP_ESCROW_ADDRESS } = useAirdropEscrowAddress()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()
@@ -271,6 +278,7 @@ export function useEndAirdropCampaign() {
 }
 
 export function useReclaimAirdropCampaign() {
+    const { AIRDROP_ESCROW_ADDRESS } = useAirdropEscrowAddress()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()
@@ -302,6 +310,7 @@ export function useReclaimAirdropCampaign() {
 /** Manual sweep of a relayer-mode campaign's unspent gas deposit — see reclaimGas() in
  *  contracts/src/AirdropEscrow.sol. Independent of useReclaimAirdropCampaign (the token pool). */
 export function useReclaimAirdropGas() {
+    const { AIRDROP_ESCROW_ADDRESS } = useAirdropEscrowAddress()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()

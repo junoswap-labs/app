@@ -28,9 +28,8 @@ import { getPaymentTokens } from '@/lib/tokens'
 import { toastSuccess, toastError } from '@/lib/toast'
 import { JUNO_PTS_DECIMALS } from '@/types/redeem'
 import type { RedeemKind, RedeemTier } from '@/types/redeem'
-
-const REDEEM_NFT_SETTLEMENT_ADDRESS = process.env.NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS as Address | undefined
-const JUNO_PTS_ADDRESS = process.env.NEXT_PUBLIC_JUNO_PTS_ADDRESS as Address | undefined
+import { getContractAddresses } from '@/config/contract-addresses'
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 interface VariantRow {
     label: string
@@ -44,6 +43,7 @@ export default function ListRedeemItemPage() {
     const chainId = useChainId()
     const isAdmin = useIsAdmin()
     const isPartnerRedeem = useIsPartnerRedeem()
+    const { redeemNftSettlement: REDEEM_NFT_SETTLEMENT_ADDRESS, junoPts: JUNO_PTS_ADDRESS } = getContractAddresses(chainId)
     const paymentTokens = getPaymentTokens(chainId)
     // JunoPts shows up as an ordinary option in both token pickers (rather than a separate,
     // hardcoded "Points price" field) so either leg can be Points, an ERC20, or left unset.
@@ -352,6 +352,7 @@ function NftFields({
     setNftContract: (v: string) => void
     setNftTokenId: (v: string) => void
 }) {
+    const { redeemNftSettlement: REDEEM_NFT_SETTLEMENT_ADDRESS } = useContractAddresses()
     const { address } = useAccount()
     const publicClient = usePublicClient()
     const { writeContractAsync } = useWriteContract()

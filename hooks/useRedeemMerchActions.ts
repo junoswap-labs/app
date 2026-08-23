@@ -6,14 +6,14 @@ import type { Address } from 'viem'
 import { rwaEscrowAbi } from '@/lib/abis/rwa-escrow'
 import { useSyncRefresh } from '@/hooks/useSyncRefresh'
 import { useSimulatedWrite } from '@/hooks/useSimulatedWrite'
-
-const REDEEM_RWA_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 /** Same Clean Workflow plumbing as hooks/useRwaActions.ts's useRwaWrite, pointed at the
  *  Redeem-dedicated RwaEscrow deployment instead of the Marketplace one — see that file's comment
  *  for why this can't just be parameterized into one shared hook (different query keys, different
  *  deployed address). */
 function useRedeemRwaWrite(functionName: string) {
+    const { redeemRwaEscrow: REDEEM_RWA_ESCROW_ADDRESS } = useContractAddresses()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()

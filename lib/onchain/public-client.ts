@@ -1,6 +1,7 @@
 import { createPublicClient, http } from 'viem'
 import type { Address } from 'viem'
 import { bitkub, kubTestnet } from '@/lib/wagmi'
+import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
 
 // Server-side-only viem client (Route Handlers, sync poller) — reads chain state directly,
 // independent of the browser's wagmi connection. KUB_RPC_URL is server-only (see .env.example);
@@ -18,25 +19,25 @@ export function serverPublicClient() {
 }
 
 export function permissionRegistryAddress(): Address {
-    const addr = process.env.NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS
-    if (!addr) throw new Error('NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS is not set')
-    return addr as Address
+    const addr = CONTRACT_ADDRESSES.permissionRegistry
+    if (!addr) throw new Error('permissionRegistry address is not configured')
+    return addr
 }
 
 export function junoPtsAddress(): Address {
-    const addr = process.env.NEXT_PUBLIC_JUNO_PTS_ADDRESS
-    if (!addr) throw new Error('NEXT_PUBLIC_JUNO_PTS_ADDRESS is not set')
-    return addr as Address
+    const addr = CONTRACT_ADDRESSES.junoPts
+    if (!addr) throw new Error('junoPts address is not configured')
+    return addr
 }
 
 export function redeemNftSettlementAddress(): Address {
-    const addr = process.env.NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS
-    if (!addr) throw new Error('NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS is not set')
-    return addr as Address
+    const addr = CONTRACT_ADDRESSES.redeemNftSettlement
+    if (!addr) throw new Error('redeemNftSettlement address is not configured')
+    return addr
 }
 
 export function redeemRwaEscrowAddress(): Address {
-    const addr = process.env.NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS
-    if (!addr) throw new Error('NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS is not set')
-    return addr as Address
+    const addr = CONTRACT_ADDRESSES.redeemRwaEscrow
+    if (!addr) throw new Error('redeemRwaEscrow address is not configured')
+    return addr
 }

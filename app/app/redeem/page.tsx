@@ -3,14 +3,11 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { formatUnits } from 'viem'
-import { ChevronDown, Coins, Plus, ReceiptText, Settings } from 'lucide-react'
+import { Coins, ReceiptText, Settings } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { EmptyState } from '@/components/ui/empty-state'
 import { RedeemItemCard } from '@/components/redeem/redeem-item-card'
-import { RedemptionQueue } from '@/components/admin/redemption-queue'
-import { MyRedeemListings } from '@/components/redeem/my-listings'
 import { useRedeemItems } from '@/hooks/useRedeemItems'
 import { useListerProfiles } from '@/hooks/useListerProfile'
 import { useJunoPtsBalance } from '@/hooks/useJunoPtsBalance'
@@ -26,18 +23,18 @@ const KIND_FILTERS: { value: KindFilter; label: string }[] = [
     { value: 'merch', label: 'Merch' },
 ]
 
-type ViewTab = 'all' | 'official' | 'registered' | 'manage'
+type ViewTab = 'all' | 'official' | 'registered'
 
 export default function RedeemPage() {
     const [tab, setTab] = useState<ViewTab>('all')
     const [kindFilter, setKindFilter] = useState<KindFilter>('all')
-    const [manageTab, setManageTab] = useState<'orders' | 'listings'>('orders')
     const { data: items, isLoading } = useRedeemItems()
     const listerWallets = useMemo(() => (items ?? []).map((i) => i.lister_wallet), [items])
     const { data: listerProfiles } = useListerProfiles(listerWallets)
     const { data: pointBalance } = useJunoPtsBalance()
     const isAdmin = useIsAdmin()
     const isPartnerRedeem = useIsPartnerRedeem()
+    const canManage = isAdmin || isPartnerRedeem
 
     const itemsFor = (tier: RedeemTier | 'all') =>
         (items ?? []).filter((i) => (tier === 'all' || i.tier === tier) && (kindFilter === 'all' || i.kind === kindFilter))
@@ -77,28 +74,13 @@ export default function RedeemPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                    {(isAdmin || isPartnerRedeem) && (
-                        <div className="flex items-stretch overflow-hidden rounded-md border border-input shadow-sm">
-                            <Button variant="ghost" size="sm" asChild className="rounded-none">
-                                <Link href="/app/redeem/list">
-                                    <Plus className="mr-1.5 h-4 w-4" />
-                                    List item
-                                </Link>
-                            </Button>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm" aria-label="More listing actions" className="rounded-none border-l px-2">
-                                        <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onSelect={() => setTab('manage')}>
-                                        <Settings className="mr-2 h-4 w-4" />
-                                        Manage
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </div>
+                    {canManage && (
+                        <Button variant="outline" size="sm" asChild>
+                            <Link href="/app/redeem/manage">
+                                <Settings className="mr-1.5 h-4 w-4" />
+                                Partner Panel
+                            </Link>
+                        </Button>
                     )}
                     <Button variant="outline" size="sm" asChild>
                         <Link href="/app/redeem/orders">
@@ -116,20 +98,18 @@ export default function RedeemPage() {
                         <TabsTrigger value="official">Official</TabsTrigger>
                         <TabsTrigger value="registered">Registered</TabsTrigger>
                     </TabsList>
-                    {tab !== 'manage' && (
-                        <div className="flex gap-1">
-                            {KIND_FILTERS.map((f) => (
-                                <Button
-                                    key={f.value}
-                                    variant={kindFilter === f.value ? 'secondary' : 'ghost'}
-                                    size="sm"
-                                    onClick={() => setKindFilter(f.value)}
-                                >
-                                    {f.label}
-                                </Button>
-                            ))}
-                        </div>
-                    )}
+                    <div className="flex gap-1">
+                        {KIND_FILTERS.map((f) => (
+                            <Button
+                                key={f.value}
+                                variant={kindFilter === f.value ? 'secondary' : 'ghost'}
+                                size="sm"
+                                onClick={() => setKindFilter(f.value)}
+                            >
+                                {f.label}
+                            </Button>
+                        ))}
+                    </div>
                 </div>
 
                 <TabsContent value="all" className="mt-6">
@@ -140,22 +120,6 @@ export default function RedeemPage() {
                 </TabsContent>
                 <TabsContent value="registered" className="mt-6">
                     {renderGrid('registered')}
-                </TabsContent>
-                <TabsContent value="manage" className="mt-6 space-y-4">
-                    <p className="text-sm text-muted-foreground">
-                        {manageTab === 'orders'
-                            ? 'Merch orders against your listings — attach a tracking number to mark an order shipped.'
-                            : 'Your Redeem listings — edit details, pricing, or unpublish.'}
-                    </p>
-                    <div className="flex gap-1">
-                        <Button type="button" size="sm" variant={manageTab === 'orders' ? 'secondary' : 'outline'} onClick={() => setManageTab('orders')}>
-                            Redemptions
-                        </Button>
-                        <Button type="button" size="sm" variant={manageTab === 'listings' ? 'secondary' : 'outline'} onClick={() => setManageTab('listings')}>
-                            My Listings
-                        </Button>
-                    </div>
-                    {manageTab === 'orders' ? <RedemptionQueue /> : <MyRedeemListings />}
                 </TabsContent>
             </Tabs>
         </div>

@@ -8,6 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { parseBaseUnitsAmount } from '@/lib/amount'
 import type { RedeemItemVariant, RedeemKind, RedeemTier } from '@/types/redeem'
 import { isAppHostedImageUrl } from '@/lib/image'
+import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
 
 // Public browsing (published items only) reads straight from Supabase via the browser client —
 // same convention as rwa_listings/collections (public-read RLS policy, see
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest) {
         // request. Official items are minted fresh at redemption time (IMintableERC721.mint), so
         // there's no vault to check. Skipped only if the contract isn't deployed yet, matching the
         // "safely no-ops pre-deployment" convention used by useOnChainRoles.ts.
-        const settlementAddress = process.env.NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS
+        const settlementAddress = CONTRACT_ADDRESSES.redeemNftSettlement
         if (tier === 'registered' && settlementAddress) {
             let owner: string
             let treasury: string

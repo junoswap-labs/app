@@ -22,8 +22,7 @@ import { getPaymentTokens } from '@/lib/tokens'
 import { JUNO_PTS_DECIMALS } from '@/types/redeem'
 import { toastSuccess, toastError } from '@/lib/toast'
 import type { RedeemItemStatus } from '@/types/redeem'
-
-const JUNO_PTS_ADDRESS = process.env.NEXT_PUBLIC_JUNO_PTS_ADDRESS as `0x${string}` | undefined
+import { getContractAddresses } from '@/config/contract-addresses'
 
 interface VariantRow {
     id?: number
@@ -47,6 +46,7 @@ export default function EditRedeemItemPage({ params }: { params: Promise<{ itemI
     const { data: item, isLoading, error } = useMyRedeemItem(itemId)
     const update = useUpdateRedeemItem()
 
+    const { junoPts: JUNO_PTS_ADDRESS } = getContractAddresses(chainId)
     const paymentTokens = getPaymentTokens(chainId)
     const pointsOption = JUNO_PTS_ADDRESS ? [{ symbol: 'PTS', address: JUNO_PTS_ADDRESS, decimals: JUNO_PTS_DECIMALS }] : []
     const tokenOptions = [...pointsOption, ...paymentTokens]

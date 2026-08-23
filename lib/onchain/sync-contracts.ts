@@ -1,4 +1,5 @@
 import type { Address } from 'viem'
+import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
 import { nftMarketplaceEventsAbi } from '@/lib/abis/nft-marketplace'
 import { rwaEscrowEventsAbi } from '@/lib/abis/rwa-escrow'
 import { redeemNftSettlementEventsAbi } from '@/lib/abis/redeem-nft-settlement'
@@ -32,33 +33,33 @@ export interface SyncTarget {
 export function getSyncTargets(): SyncTarget[] {
     const targets: SyncTarget[] = []
 
-    const nftAddress = process.env.NEXT_PUBLIC_NFT_MARKETPLACE_ADDRESS
+    const nftAddress = CONTRACT_ADDRESSES.nftMarketplace
     if (nftAddress) {
         targets.push({
             contract: 'nft_marketplace',
-            address: nftAddress as Address,
+            address: nftAddress,
             abi: nftMarketplaceEventsAbi,
             handlers: marketplaceEventHandlers,
             deployBlock: BigInt(process.env.NFT_MARKETPLACE_DEPLOY_BLOCK ?? '0'),
         })
     }
 
-    const rwaAddress = process.env.NEXT_PUBLIC_RWA_ESCROW_ADDRESS
+    const rwaAddress = CONTRACT_ADDRESSES.rwaEscrow
     if (rwaAddress) {
         targets.push({
             contract: 'rwa_escrow',
-            address: rwaAddress as Address,
+            address: rwaAddress,
             abi: rwaEscrowEventsAbi,
             handlers: marketplaceEventHandlers,
             deployBlock: BigInt(process.env.RWA_ESCROW_DEPLOY_BLOCK ?? '0'),
         })
     }
 
-    const redeemNftAddress = process.env.NEXT_PUBLIC_REDEEM_NFT_SETTLEMENT_ADDRESS
+    const redeemNftAddress = CONTRACT_ADDRESSES.redeemNftSettlement
     if (redeemNftAddress) {
         targets.push({
             contract: 'redeem_nft_settlement',
-            address: redeemNftAddress as Address,
+            address: redeemNftAddress,
             abi: redeemNftSettlementEventsAbi,
             handlers: redeemNftEventHandlers,
             deployBlock: BigInt(process.env.REDEEM_NFT_SETTLEMENT_DEPLOY_BLOCK ?? '0'),
@@ -69,22 +70,22 @@ export function getSyncTargets(): SyncTarget[] {
     // 10% platform fee — and a different feeCollector than the Marketplace instance above); see
     // supabase/migrations/0008_redeem_schema.sql's header comment for why merch reuses this
     // contract's code instead of a bespoke escrow.
-    const redeemRwaAddress = process.env.NEXT_PUBLIC_REDEEM_RWA_ESCROW_ADDRESS
+    const redeemRwaAddress = CONTRACT_ADDRESSES.redeemRwaEscrow
     if (redeemRwaAddress) {
         targets.push({
             contract: 'redeem_rwa_escrow',
-            address: redeemRwaAddress as Address,
+            address: redeemRwaAddress,
             abi: rwaEscrowEventsAbi,
             handlers: redeemRwaEventHandlers,
             deployBlock: BigInt(process.env.REDEEM_RWA_ESCROW_DEPLOY_BLOCK ?? '0'),
         })
     }
 
-    const airdropAddress = process.env.NEXT_PUBLIC_AIRDROP_ESCROW_ADDRESS
+    const airdropAddress = CONTRACT_ADDRESSES.airdropEscrow
     if (airdropAddress) {
         targets.push({
             contract: 'airdrop_escrow',
-            address: airdropAddress as Address,
+            address: airdropAddress,
             abi: airdropEscrowEventsAbi,
             handlers: airdropEventHandlers,
             deployBlock: BigInt(process.env.AIRDROP_ESCROW_DEPLOY_BLOCK ?? '0'),

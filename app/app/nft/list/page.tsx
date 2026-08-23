@@ -16,8 +16,7 @@ import { getPaymentTokens } from '@/lib/tokens'
 import { useCollectionConfig } from '@/hooks/useCollections'
 import { useListNftOrder } from '@/hooks/useListNftOrder'
 import { toastSuccess, toastError } from '@/lib/toast'
-
-const NFT_MARKETPLACE_ADDRESS = process.env.NEXT_PUBLIC_NFT_MARKETPLACE_ADDRESS as Address | undefined
+import { getContractAddresses } from '@/config/contract-addresses'
 
 export default function ListNftPage() {
     const router = useRouter()
@@ -25,6 +24,7 @@ export default function ListNftPage() {
     const chainId = useChainId()
     const publicClient = usePublicClient()
     const paymentTokens = getPaymentTokens(chainId)
+    const { nftMarketplace: NFT_MARKETPLACE_ADDRESS } = getContractAddresses(chainId)
     const { writeContractAsync } = useWriteContract()
     const listOrder = useListNftOrder()
 
