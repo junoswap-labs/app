@@ -168,17 +168,19 @@ export interface Database {
                     nft_token_id: string | null
                     stock: number | null
                     thailand_only: boolean
+                    max_per_wallet: number | null
                     publish_at: string | null
                     redeem_start_at: string | null
                     redeem_end_at: string | null
                     status: 'draft' | 'published' | 'archived'
                     created_at: string
                 }
-                Insert: Omit<Database['public']['Tables']['redeem_items']['Row'], 'id' | 'status' | 'created_at' | 'thailand_only'> & {
+                Insert: Omit<Database['public']['Tables']['redeem_items']['Row'], 'id' | 'status' | 'created_at' | 'thailand_only' | 'max_per_wallet'> & {
                     id?: number
                     status?: string
                     created_at?: string
                     thailand_only?: boolean
+                    max_per_wallet?: number | null
                 }
                 Update: Partial<Database['public']['Tables']['redeem_items']['Row']>
                 Relationships: []
@@ -222,6 +224,11 @@ export interface Database {
                     shipped_at: string | null
                     completed_at: string | null
                     resolved_at: string | null
+                    dispute_reason: string | null
+                    dispute_detail: string | null
+                    dispute_evidence_urls: string[] | null
+                    dispute_reported_by: string | null
+                    dispute_reported_at: string | null
                 }
                 Insert: Omit<
                     Database['public']['Tables']['redemption_orders']['Row'],
@@ -236,6 +243,11 @@ export interface Database {
                     | 'escrow_listing_id'
                     | 'shipping'
                     | 'tracking_number'
+                    | 'dispute_reason'
+                    | 'dispute_detail'
+                    | 'dispute_evidence_urls'
+                    | 'dispute_reported_by'
+                    | 'dispute_reported_at'
                 > & {
                     id?: string
                     status?: string
@@ -248,6 +260,11 @@ export interface Database {
                     escrow_listing_id?: string | null
                     shipping?: Record<string, unknown> | null
                     tracking_number?: string | null
+                    dispute_reason?: string | null
+                    dispute_detail?: string | null
+                    dispute_evidence_urls?: string[] | null
+                    dispute_reported_by?: string | null
+                    dispute_reported_at?: string | null
                 }
                 Update: Partial<Database['public']['Tables']['redemption_orders']['Row']>
                 Relationships: [

@@ -69,3 +69,20 @@ export function useClaimRedeemRefund() {
     const mutation = useRedeemRwaWrite('claimRefund')
     return { ...mutation, claimRefundAsync: (listingId: `0x${string}`) => mutation.mutateAsync([listingId]) }
 }
+
+/** Buyer or seller — only callable once DISPUTE_GRACE has passed since shipping (see
+ *  RwaEscrow.sol's openDispute()). Pair with useReportRedeemDispute to record the reason first. */
+export function useOpenRedeemDispute() {
+    const mutation = useRedeemRwaWrite('openDispute')
+    return { ...mutation, openDisputeAsync: (listingId: `0x${string}`) => mutation.mutateAsync([listingId]) }
+}
+
+/** Arbitrator-only on-chain (ARBITRATOR_ROLE) — the contract enforces it for real, this hook has no
+ *  gating of its own, matching hooks/useRwaActions.ts's useResolveDispute. */
+export function useResolveRedeemDispute() {
+    const mutation = useRedeemRwaWrite('resolveDispute')
+    return {
+        ...mutation,
+        resolveDisputeAsync: (listingId: `0x${string}`, releaseToSeller: boolean) => mutation.mutateAsync([listingId, releaseToSeller]),
+    }
+}

@@ -40,6 +40,23 @@ export function useRedeemOrderLogs(orderId: string | undefined) {
     })
 }
 
+/** Records dispute reason/evidence off-chain — see the route's own comment for why the actual
+ *  openDispute() tx is a separate step the caller still has to send with their own wallet. */
+export function useReportRedeemDispute() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ orderId, detail, evidenceUrls }: { orderId: string; detail: string; evidenceUrls: string[] }) =>
+            fetchJson(`/api/redeem/orders/${orderId}/dispute`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ detail, evidence_urls: evidenceUrls }),
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['redeem-orders'] })
+        },
+    })
+}
+
 /** STEP 3.1 — attach a tracking number (off-chain metadata only, see the route's own comment). */
 export function useAttachTracking() {
     const queryClient = useQueryClient()

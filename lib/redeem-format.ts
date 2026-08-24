@@ -32,6 +32,29 @@ export function redeemPriceLabel(
     return parts.join(' + ') || 'Free'
 }
 
+/** Every `audit_logs.action` value a redemption order's log can carry — see
+ *  app/api/redeem/orders/route.ts, app/api/redeem/orders/[id]/(dispute/)route.ts, and
+ *  services/sync/handlers.ts for where each is written. */
+const REDEEM_LOG_LABELS: Record<string, string> = {
+    'redeem.order_created': 'Order placed',
+    'redeem.merch_funded': 'Payment escrowed',
+    'redeem.merch_shipped': 'Marked as shipped',
+    'redeem.tracking_attached': 'Tracking number added',
+    'redeem.merch_completed': 'Buyer confirmed — funds released',
+    'redeem.merch_auto_released': 'Auto-released to lister',
+    'redeem.merch_refunded': 'Refunded to buyer',
+    'redeem.dispute_reported': 'Dispute reported',
+    'redeem.merch_dispute_opened': 'Dispute opened on-chain',
+    'redeem.merch_dispute_resolved': 'Dispute resolved',
+    'redeem.nft_completed': 'NFT redeemed',
+}
+
+/** Falls back to the raw action string (spaces for dots/underscores) for anything not in the map
+ *  above, so a future action never renders as literally blank. */
+export function redeemLogLabel(action: string): string {
+    return REDEEM_LOG_LABELS[action] ?? action.replace(/^redeem\./, '').replace(/[._]/g, ' ')
+}
+
 /**
  * Renders a shipping address as postable lines. Handles both shapes: the structured fields, and the
  * single free-text `address` that orders placed before the structured form still carry.

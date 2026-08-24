@@ -2,8 +2,8 @@
 
 import { useCallback } from 'react'
 import { useAccount, usePublicClient, useWriteContract } from 'wagmi'
-import { BaseError, ContractFunctionRevertedError } from 'viem'
 import type { Abi, Address } from 'viem'
+import { errorReason } from '@/lib/toast'
 
 interface WriteParams {
     address: Address
@@ -39,24 +39,11 @@ export function useSimulatedWrite() {
                     account: address,
                 } as Parameters<typeof publicClient.simulateContract>[0]))
             } catch (err) {
-                throw new Error(revertMessage(err))
+                throw new Error(errorReason(err))
             }
 
             return writeContractAsync(request as Parameters<typeof writeContractAsync>[0])
         },
         [address, publicClient, writeContractAsync]
     )
-}
-
-/** Surfaces the contract's own `require` string / custom error name instead of viem's full multi-
- *  paragraph dump, which is unreadable inside a toast. */
-function revertMessage(err: unknown): string {
-    if (err instanceof BaseError) {
-        const reverted = err.walk((e) => e instanceof ContractFunctionRevertedError)
-        if (reverted instanceof ContractFunctionRevertedError) {
-            return reverted.data?.errorName ?? reverted.reason ?? reverted.shortMessage
-        }
-        return err.shortMessage
-    }
-    return err instanceof Error ? err.message : 'transaction would revert'
 }

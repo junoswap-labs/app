@@ -34,7 +34,7 @@ export default function ListRedeemItemPage() {
     const chainId = useChainId()
     const isAdmin = useIsAdmin()
     const isPartnerRedeem = useIsPartnerRedeem()
-    const { redeemNftSettlement: REDEEM_NFT_SETTLEMENT_ADDRESS, junoPts: JUNO_PTS_ADDRESS } = getContractAddresses(chainId)
+    const { junoPts: JUNO_PTS_ADDRESS } = getContractAddresses(chainId)
     const paymentTokens = getPaymentTokens(chainId)
     // JunoPts shows up as an ordinary option in both token pickers (rather than a separate,
     // hardcoded "Points price" field) so either leg can be Points, an ERC20, or left unset.
@@ -55,6 +55,7 @@ export default function ListRedeemItemPage() {
     const [nftTokenId, setNftTokenId] = useState('')
     const [stock, setStock] = useState('')
     const [thailandOnly, setThailandOnly] = useState(false)
+    const [maxPerWallet, setMaxPerWallet] = useState('')
     const [variants, setVariants] = useState<VariantRow[]>([])
     const [publishAt, setPublishAt] = useState('')
     const [redeemStartAt, setRedeemStartAt] = useState('')
@@ -143,6 +144,7 @@ export default function ListRedeemItemPage() {
                 nft_token_id: kind === 'nft' ? nftTokenId.trim() : undefined,
                 stock: kind === 'merch' && variants.length === 0 && stock ? Number(stock) : null,
                 thailand_only: kind === 'merch' && thailandOnly,
+                max_per_wallet: maxPerWallet ? Number(maxPerWallet) : null,
                 variants:
                     kind === 'merch' && variants.length > 0
                         ? variants
@@ -299,6 +301,11 @@ export default function ListRedeemItemPage() {
                             removeVariant={removeVariant}
                         />
                     )}
+
+                    <div className="space-y-1.5">
+                        <Label htmlFor="maxPerWallet">Max redemptions per wallet (blank = unlimited)</Label>
+                        <Input id="maxPerWallet" type="number" min="1" className="max-w-40" value={maxPerWallet} onChange={(e) => setMaxPerWallet(e.target.value)} />
+                    </div>
 
                     <Separator />
 

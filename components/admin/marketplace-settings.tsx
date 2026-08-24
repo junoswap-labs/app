@@ -1,17 +1,20 @@
 'use client'
 
 import { useState } from 'react'
-import { useAccount, usePublicClient, useReadContract, useWriteContract } from 'wagmi'
+import { useAccount, useChainId, usePublicClient, useReadContract, useWriteContract } from 'wagmi'
 import type { Address } from 'viem'
+import { Check, Copy, ExternalLink, Gavel, Pause, Percent, Play, Wallet } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
 import { EmptyState } from '@/components/ui/empty-state'
 import { nftMarketplaceAdminAbi } from '@/lib/abis/nft-marketplace'
 import { rwaEscrowAdminAbi } from '@/lib/abis/rwa-escrow'
 import { toastSuccess, toastError } from '@/lib/toast'
+import { getExplorerAddressUrl } from '@/lib/explorer'
 import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 /**
@@ -27,8 +30,12 @@ import { useContractAddresses } from '@/hooks/useContractAddresses'
  * enforces it — a mismatched wallet's tx would simply revert.
  */
 export function MarketplaceSettings() {
-    const { nftMarketplace: NFT_MARKETPLACE_ADDRESS, rwaEscrow: RWA_ESCROW_ADDRESS } = useContractAddresses()
-    if (!NFT_MARKETPLACE_ADDRESS && !RWA_ESCROW_ADDRESS) {
+    const {
+        nftMarketplace: NFT_MARKETPLACE_ADDRESS,
+        rwaEscrow: RWA_ESCROW_ADDRESS,
+        redeemRwaEscrow: REDEEM_RWA_ESCROW_ADDRESS,
+    } = useContractAddresses()
+    if (!NFT_MARKETPLACE_ADDRESS && !RWA_ESCROW_ADDRESS && !REDEEM_RWA_ESCROW_ADDRESS) {
         return (
             <EmptyState
                 title="No contracts deployed yet"
@@ -39,21 +46,72 @@ export function MarketplaceSettings() {
 
     return (
         <div className="space-y-6">
-            {NFT_MARKETPLACE_ADDRESS && <NftMarketplaceSettings address={NFT_MARKETPLACE_ADDRESS} />}
-            {RWA_ESCROW_ADDRESS && <RwaEscrowSettings address={RWA_ESCROW_ADDRESS} />}
+            {NFT_MARKETPLACE_ADDRESS && (
+                <NftMarketplaceSettings address={NFT_MARKETPLACE_ADDRESS} title="NftMarketplace" />
+            )}
+            {RWA_ESCROW_ADDRESS && <RwaEscrowSettings address={RWA_ESCROW_ADDRESS} title="RwaEscrow · Marketplace" />}
+            {REDEEM_RWA_ESCROW_ADDRESS && (
+                <RwaEscrowSettings address={REDEEM_RWA_ESCROW_ADDRESS} title="RwaEscrow · Redeem" />
+            )}
+        </div>
+    )
+}
+
+/** Shortened address + copy + explorer-link, matching contract-directory.tsx's AddressRow. */
+function AddressChip({ address }: { address: Address }) {
+    const chainId = useChainId()
+    const [copied, setCopied] = useState(false)
+
+    const copy = async () => {
+        await navigator.clipboard.writeText(address)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+    }
+
+    return (
+        <div className="flex shrink-0 items-center gap-0.5 rounded-md border bg-muted/30 pl-2.5">
+            <span className="font-mono text-xs text-muted-foreground">
+                {address.slice(0, 8)}…{address.slice(-6)}
+            </span>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={copy} aria-label="Copy contract address">
+                {copied ? <Check className="h-3.5 w-3.5 text-positive" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" asChild aria-label="Open in explorer">
+                <a href={getExplorerAddressUrl(chainId, address)} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+            </Button>
         </div>
     )
 }
 
 function AdminBadge({ isAdmin }: { isAdmin: boolean }) {
     return (
-        <Badge variant={isAdmin ? 'secondary' : 'outline'}>
+        <Badge variant={isAdmin ? 'secondary' : 'outline'} className="shrink-0">
             {isAdmin ? 'you are the admin' : 'not the admin'}
         </Badge>
     )
 }
 
-function NftMarketplaceSettings({ address }: { address: Address }) {
+/** Section label used above each group of controls (Emergency stop / Fees / Payment tokens / …). */
+function SectionHeading({ icon: Icon, title, description }: { icon: typeof Pause; title: string; description: string }) {
+    return (
+        <div className="flex items-start gap-2">
+            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div>
+                <p className="text-sm font-medium">{title}</p>
+                <p className="text-xs text-muted-foreground">{description}</p>
+            </div>
+        </div>
+    )
+}
+
+function ConnectWalletNote({ show }: { show: boolean }) {
+    if (!show) return null
+    return <p className="text-xs text-muted-foreground">Connect a wallet to see whether it can manage this contract.</p>
+}
+
+function NftMarketplaceSettings({ address, title }: { address: Address; title: string }) {
     const { address: wallet } = useAccount()
     const publicClient = usePublicClient()
     const { writeContractAsync } = useWriteContract()
@@ -107,16 +165,25 @@ function NftMarketplaceSettings({ address }: { address: Address }) {
 
     return (
         <Card>
-            <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-                <CardTitle className="text-base">NftMarketplace</CardTitle>
-                <AdminBadge isAdmin={isAdmin} />
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+                <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">{title}</CardTitle>
+                    <AddressChip address={address} />
+                </div>
+                <div className="flex items-center gap-2">
+                    <Badge variant={paused ? 'destructive' : 'secondary'}>{paused ? 'Paused' : 'Active'}</Badge>
+                    <AdminBadge isAdmin={isAdmin} />
+                </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-                <div className="flex items-center justify-between rounded-md border p-3">
-                    <div>
-                        <p className="text-sm font-medium">Trading {paused ? 'paused' : 'active'}</p>
-                        <p className="text-xs text-muted-foreground">Emergency stop for all listings/fulfillments</p>
-                    </div>
+            <CardContent className="space-y-5">
+                <ConnectWalletNote show={!wallet} />
+
+                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <SectionHeading
+                        icon={paused ? Play : Pause}
+                        title={`Trading ${paused ? 'paused' : 'active'}`}
+                        description="Emergency stop for all listings/fulfillments"
+                    />
                     <Button
                         size="sm"
                         variant={paused ? 'default' : 'destructive'}
@@ -136,72 +203,82 @@ function NftMarketplaceSettings({ address }: { address: Address }) {
                     </Button>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                        <Label>Platform fee (bps)</Label>
-                        <p className="text-xs text-muted-foreground">
-                            Current: {feeBps?.toString() ?? '—'} / max {maxFeeBps?.toString() ?? '—'}
-                        </p>
-                        <div className="flex gap-2">
-                            <Input
-                                type="number"
-                                min="0"
-                                placeholder={feeBps?.toString()}
-                                value={feeBpsInput}
-                                onChange={(e) => setFeeBpsInput(e.target.value)}
-                            />
-                            <Button
-                                disabled={!isAdmin || !feeBpsInput || busy !== null}
-                                isLoading={busy === 'feeBps'}
-                                onClick={() =>
-                                    run('feeBps', () =>
-                                        writeContractAsync({
-                                            address,
-                                            abi: nftMarketplaceAdminAbi,
-                                            functionName: 'setFeeBps',
-                                            args: [BigInt(feeBpsInput)],
-                                        })
-                                    )
-                                }
-                            >
-                                Save
-                            </Button>
+                <Separator />
+
+                <div className="space-y-3">
+                    <SectionHeading icon={Percent} title="Fees" description="Platform cut and where it's sent" />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                            <Label>Platform fee (bps)</Label>
+                            <p className="text-xs text-muted-foreground">
+                                Current: <span className="font-mono">{feeBps?.toString() ?? '—'}</span> / max{' '}
+                                <span className="font-mono">{maxFeeBps?.toString() ?? '—'}</span>
+                            </p>
+                            <div className="flex gap-2">
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder={feeBps?.toString()}
+                                    value={feeBpsInput}
+                                    onChange={(e) => setFeeBpsInput(e.target.value)}
+                                />
+                                <Button
+                                    disabled={!isAdmin || !feeBpsInput || feeBpsInput === feeBps?.toString() || busy !== null}
+                                    isLoading={busy === 'feeBps'}
+                                    onClick={() =>
+                                        run('feeBps', () =>
+                                            writeContractAsync({
+                                                address,
+                                                abi: nftMarketplaceAdminAbi,
+                                                functionName: 'setFeeBps',
+                                                args: [BigInt(feeBpsInput)],
+                                            })
+                                        )
+                                    }
+                                >
+                                    Save
+                                </Button>
+                            </div>
                         </div>
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label>Fee collector</Label>
-                        <p className="truncate font-mono text-xs text-muted-foreground">
-                            {feeCollector ?? '—'}
-                        </p>
-                        <div className="flex gap-2">
-                            <Input
-                                className="font-mono text-xs"
-                                placeholder="0x…"
-                                value={feeCollectorInput}
-                                onChange={(e) => setFeeCollectorInput(e.target.value)}
-                            />
-                            <Button
-                                disabled={!isAdmin || !feeCollectorInput || busy !== null}
-                                isLoading={busy === 'feeCollector'}
-                                onClick={() =>
-                                    run('feeCollector', () =>
-                                        writeContractAsync({
-                                            address,
-                                            abi: nftMarketplaceAdminAbi,
-                                            functionName: 'setFeeCollector',
-                                            args: [feeCollectorInput as Address],
-                                        })
-                                    )
-                                }
-                            >
-                                Save
-                            </Button>
+                        <div className="space-y-1.5">
+                            <Label>Fee collector</Label>
+                            <p className="truncate font-mono text-xs text-muted-foreground">{feeCollector ?? '—'}</p>
+                            <div className="flex gap-2">
+                                <Input
+                                    className="font-mono text-xs"
+                                    placeholder={feeCollector ?? '0x…'}
+                                    value={feeCollectorInput}
+                                    onChange={(e) => setFeeCollectorInput(e.target.value)}
+                                />
+                                <Button
+                                    disabled={!isAdmin || !feeCollectorInput || busy !== null}
+                                    isLoading={busy === 'feeCollector'}
+                                    onClick={() =>
+                                        run('feeCollector', () =>
+                                            writeContractAsync({
+                                                address,
+                                                abi: nftMarketplaceAdminAbi,
+                                                functionName: 'setFeeCollector',
+                                                args: [feeCollectorInput as Address],
+                                            })
+                                        )
+                                    }
+                                >
+                                    Save
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="space-y-1.5">
-                    <Label>Allow a payment token</Label>
+                <Separator />
+
+                <div className="space-y-3">
+                    <SectionHeading
+                        icon={Wallet}
+                        title="Payment tokens"
+                        description="Only allow-listed ERC20s can be used to pay for a listing"
+                    />
                     <div className="flex gap-2">
                         <Input
                             className="font-mono text-xs"
@@ -250,7 +327,7 @@ function NftMarketplaceSettings({ address }: { address: Address }) {
     )
 }
 
-function RwaEscrowSettings({ address }: { address: Address }) {
+function RwaEscrowSettings({ address, title = 'RwaEscrow' }: { address: Address; title?: string }) {
     const { address: wallet } = useAccount()
     const publicClient = usePublicClient()
     const { writeContractAsync } = useWriteContract()
@@ -317,18 +394,25 @@ function RwaEscrowSettings({ address }: { address: Address }) {
 
     return (
         <Card>
-            <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-                <CardTitle className="text-base">RwaEscrow</CardTitle>
-                <AdminBadge isAdmin={isAdmin} />
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+                <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">{title}</CardTitle>
+                    <AddressChip address={address} />
+                </div>
+                <div className="flex items-center gap-2">
+                    <Badge variant={paused ? 'destructive' : 'secondary'}>{paused ? 'Paused' : 'Active'}</Badge>
+                    <AdminBadge isAdmin={isAdmin} />
+                </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-                <div className="flex items-center justify-between rounded-md border p-3">
-                    <div>
-                        <p className="text-sm font-medium">Escrow {paused ? 'paused' : 'active'}</p>
-                        <p className="text-xs text-muted-foreground">
-                            Emergency stop — disputes can still be resolved while paused
-                        </p>
-                    </div>
+            <CardContent className="space-y-5">
+                <ConnectWalletNote show={!wallet} />
+
+                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <SectionHeading
+                        icon={paused ? Play : Pause}
+                        title={`Escrow ${paused ? 'paused' : 'active'}`}
+                        description="Emergency stop — disputes can still be resolved while paused"
+                    />
                     <Button
                         size="sm"
                         variant={paused ? 'default' : 'destructive'}
@@ -348,72 +432,82 @@ function RwaEscrowSettings({ address }: { address: Address }) {
                     </Button>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                        <Label>Platform fee (bps)</Label>
-                        <p className="text-xs text-muted-foreground">
-                            Current: {feeBps?.toString() ?? '—'} / max {maxFeeBps?.toString() ?? '—'}
-                        </p>
-                        <div className="flex gap-2">
-                            <Input
-                                type="number"
-                                min="0"
-                                placeholder={feeBps?.toString()}
-                                value={feeBpsInput}
-                                onChange={(e) => setFeeBpsInput(e.target.value)}
-                            />
-                            <Button
-                                disabled={!isAdmin || !feeBpsInput || busy !== null}
-                                isLoading={busy === 'feeBps'}
-                                onClick={() =>
-                                    run('feeBps', () =>
-                                        writeContractAsync({
-                                            address,
-                                            abi: rwaEscrowAdminAbi,
-                                            functionName: 'setFeeBps',
-                                            args: [BigInt(feeBpsInput)],
-                                        })
-                                    )
-                                }
-                            >
-                                Save
-                            </Button>
+                <Separator />
+
+                <div className="space-y-3">
+                    <SectionHeading icon={Percent} title="Fees" description="Platform cut and where it's sent" />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                            <Label>Platform fee (bps)</Label>
+                            <p className="text-xs text-muted-foreground">
+                                Current: <span className="font-mono">{feeBps?.toString() ?? '—'}</span> / max{' '}
+                                <span className="font-mono">{maxFeeBps?.toString() ?? '—'}</span>
+                            </p>
+                            <div className="flex gap-2">
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder={feeBps?.toString()}
+                                    value={feeBpsInput}
+                                    onChange={(e) => setFeeBpsInput(e.target.value)}
+                                />
+                                <Button
+                                    disabled={!isAdmin || !feeBpsInput || feeBpsInput === feeBps?.toString() || busy !== null}
+                                    isLoading={busy === 'feeBps'}
+                                    onClick={() =>
+                                        run('feeBps', () =>
+                                            writeContractAsync({
+                                                address,
+                                                abi: rwaEscrowAdminAbi,
+                                                functionName: 'setFeeBps',
+                                                args: [BigInt(feeBpsInput)],
+                                            })
+                                        )
+                                    }
+                                >
+                                    Save
+                                </Button>
+                            </div>
                         </div>
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label>Fee collector</Label>
-                        <p className="truncate font-mono text-xs text-muted-foreground">
-                            {feeCollector ?? '—'}
-                        </p>
-                        <div className="flex gap-2">
-                            <Input
-                                className="font-mono text-xs"
-                                placeholder="0x…"
-                                value={feeCollectorInput}
-                                onChange={(e) => setFeeCollectorInput(e.target.value)}
-                            />
-                            <Button
-                                disabled={!isAdmin || !feeCollectorInput || busy !== null}
-                                isLoading={busy === 'feeCollector'}
-                                onClick={() =>
-                                    run('feeCollector', () =>
-                                        writeContractAsync({
-                                            address,
-                                            abi: rwaEscrowAdminAbi,
-                                            functionName: 'setFeeCollector',
-                                            args: [feeCollectorInput as Address],
-                                        })
-                                    )
-                                }
-                            >
-                                Save
-                            </Button>
+                        <div className="space-y-1.5">
+                            <Label>Fee collector</Label>
+                            <p className="truncate font-mono text-xs text-muted-foreground">{feeCollector ?? '—'}</p>
+                            <div className="flex gap-2">
+                                <Input
+                                    className="font-mono text-xs"
+                                    placeholder={feeCollector ?? '0x…'}
+                                    value={feeCollectorInput}
+                                    onChange={(e) => setFeeCollectorInput(e.target.value)}
+                                />
+                                <Button
+                                    disabled={!isAdmin || !feeCollectorInput || busy !== null}
+                                    isLoading={busy === 'feeCollector'}
+                                    onClick={() =>
+                                        run('feeCollector', () =>
+                                            writeContractAsync({
+                                                address,
+                                                abi: rwaEscrowAdminAbi,
+                                                functionName: 'setFeeCollector',
+                                                args: [feeCollectorInput as Address],
+                                            })
+                                        )
+                                    }
+                                >
+                                    Save
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="space-y-1.5">
-                    <Label>Allow a payment token</Label>
+                <Separator />
+
+                <div className="space-y-3">
+                    <SectionHeading
+                        icon={Wallet}
+                        title="Payment tokens"
+                        description="Only allow-listed ERC20s can fund this escrow"
+                    />
                     <div className="flex gap-2">
                         <Input
                             className="font-mono text-xs"
@@ -458,8 +552,10 @@ function RwaEscrowSettings({ address }: { address: Address }) {
                     </div>
                 </div>
 
-                <div className="space-y-1.5">
-                    <Label>Arbitrator (resolves disputes)</Label>
+                <Separator />
+
+                <div className="space-y-3">
+                    <SectionHeading icon={Gavel} title="Dispute arbitrator" description="Resolves opened disputes" />
                     <div className="flex gap-2">
                         <Input
                             className="font-mono text-xs"
@@ -503,8 +599,8 @@ function RwaEscrowSettings({ address }: { address: Address }) {
                         </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                        Should be a multisig, never a single EOA — it can move other people&apos;s
-                        escrowed funds when resolving a dispute.
+                        Should be a multisig, never a single EOA — it can move other people&apos;s escrowed funds when
+                        resolving a dispute.
                     </p>
                 </div>
             </CardContent>

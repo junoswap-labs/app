@@ -17,6 +17,12 @@ import {RwaEscrow} from "../src/RwaEscrow.sol";
 ///                                one-time buyer-triggered grace period on top of
 ///                                AUTO_RELEASE_DEADLINE, see extendAutoRelease() on the contract
 ///      PRIVATE_KEY             — deployer key
+///      TOKEN_MANAGER            — optional address to grant TOKEN_MANAGER_ROLE to post-deploy.
+///                                 Pass the Redeem operator wallet when deploying the Redeem
+///                                 instance so item creation can auto-allow a payment token
+///                                 server-side; leave unset for the Marketplace instance, where
+///                                 allow-listing stays a manual admin decision (see RwaEscrow.sol's
+///                                 header comment on TOKEN_MANAGER_ROLE).
 ///      The constructor itself enforces DISPUTE_GRACE < AUTO_RELEASE_DEADLINE — get this wrong
 ///      and the deploy tx reverts rather than producing a misconfigured instance.
 contract DeployRwaEscrow is Script {
@@ -28,9 +34,13 @@ contract DeployRwaEscrow is Script {
         uint256 autoReleaseDeadline = vm.envUint("AUTO_RELEASE_DEADLINE");
         uint256 extensionPeriod = vm.envUint("EXTENSION_PERIOD");
         uint256 pk = vm.envUint("PRIVATE_KEY");
+        address tokenManager = vm.envOr("TOKEN_MANAGER", address(0));
 
         vm.startBroadcast(pk);
         escrow = new RwaEscrow(feeBps, feeCollector, shipDeadline, disputeGrace, autoReleaseDeadline, extensionPeriod);
+        if (tokenManager != address(0)) {
+            escrow.grantRole(escrow.TOKEN_MANAGER_ROLE(), tokenManager);
+        }
         vm.stopBroadcast();
     }
 }

@@ -87,6 +87,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     if (typeof body?.thailand_only === 'boolean') update.thailand_only = body.thailand_only
+    if (body?.max_per_wallet !== undefined) {
+        const maxPerWallet = body.max_per_wallet != null ? Number(body.max_per_wallet) : null
+        if (maxPerWallet != null && (!Number.isInteger(maxPerWallet) || maxPerWallet < 1)) {
+            return NextResponse.json({ error: 'max_per_wallet must be a positive integer or null (unlimited)' }, { status: 400 })
+        }
+        update.max_per_wallet = maxPerWallet
+    }
     if (typeof body?.publish_at === 'string' || body?.publish_at === null) update.publish_at = body.publish_at || null
     if (typeof body?.redeem_start_at === 'string' || body?.redeem_start_at === null) update.redeem_start_at = body.redeem_start_at || null
     if (typeof body?.redeem_end_at === 'string' || body?.redeem_end_at === null) update.redeem_end_at = body.redeem_end_at || null

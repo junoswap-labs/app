@@ -1,5 +1,5 @@
 import type { Address } from 'viem'
-import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
+import { CONTRACT_ADDRESSES, DEPLOY_BLOCKS } from '@/config/contract-addresses'
 import { nftMarketplaceEventsAbi } from '@/lib/abis/nft-marketplace'
 import { rwaEscrowEventsAbi } from '@/lib/abis/rwa-escrow'
 import { redeemNftSettlementEventsAbi } from '@/lib/abis/redeem-nft-settlement'
@@ -40,7 +40,7 @@ export function getSyncTargets(): SyncTarget[] {
             address: nftAddress,
             abi: nftMarketplaceEventsAbi,
             handlers: marketplaceEventHandlers,
-            deployBlock: BigInt(process.env.NFT_MARKETPLACE_DEPLOY_BLOCK ?? '0'),
+            deployBlock: DEPLOY_BLOCKS.nftMarketplace ?? 0n,
         })
     }
 
@@ -51,7 +51,7 @@ export function getSyncTargets(): SyncTarget[] {
             address: rwaAddress,
             abi: rwaEscrowEventsAbi,
             handlers: marketplaceEventHandlers,
-            deployBlock: BigInt(process.env.RWA_ESCROW_DEPLOY_BLOCK ?? '0'),
+            deployBlock: DEPLOY_BLOCKS.rwaEscrow ?? 0n,
         })
     }
 
@@ -62,7 +62,7 @@ export function getSyncTargets(): SyncTarget[] {
             address: redeemNftAddress,
             abi: redeemNftSettlementEventsAbi,
             handlers: redeemNftEventHandlers,
-            deployBlock: BigInt(process.env.REDEEM_NFT_SETTLEMENT_DEPLOY_BLOCK ?? '0'),
+            deployBlock: DEPLOY_BLOCKS.redeemNftSettlement ?? 0n,
         })
     }
 
@@ -77,7 +77,7 @@ export function getSyncTargets(): SyncTarget[] {
             address: redeemRwaAddress,
             abi: rwaEscrowEventsAbi,
             handlers: redeemRwaEventHandlers,
-            deployBlock: BigInt(process.env.REDEEM_RWA_ESCROW_DEPLOY_BLOCK ?? '0'),
+            deployBlock: DEPLOY_BLOCKS.redeemRwaEscrow ?? 0n,
         })
     }
 
@@ -88,7 +88,7 @@ export function getSyncTargets(): SyncTarget[] {
             address: airdropAddress,
             abi: airdropEscrowEventsAbi,
             handlers: airdropEventHandlers,
-            deployBlock: BigInt(process.env.AIRDROP_ESCROW_DEPLOY_BLOCK ?? '0'),
+            deployBlock: DEPLOY_BLOCKS.airdropEscrow ?? 0n,
         })
     }
 

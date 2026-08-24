@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
         .from('redemption_orders')
         .select('*, redeem_items!inner(name, lister_wallet, image_urls), redeem_item_variants(label)')
         .eq('kind', 'merch')
-        .in('status', ['Funded', 'Shipped'])
+        .in('status', ['Funded', 'Shipped', 'Disputed'])
 
     if (!isAdmin) {
         query = query.eq('redeem_items.lister_wallet', wallet)

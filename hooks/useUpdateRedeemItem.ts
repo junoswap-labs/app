@@ -13,6 +13,7 @@ export interface UpdateRedeemItemInput {
     payment_token_symbol?: string | null
     payment_amount?: string | null // base units
     stock?: number | null
+    max_per_wallet?: number | null
     publish_at?: string | null
     redeem_start_at?: string | null
     redeem_end_at?: string | null

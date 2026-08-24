@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useReadContract } from 'wagmi'
-import type { Address } from 'viem'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionWallet } from '@/lib/auth/session'
 import { isAdminOnChain, isPartnerRedeemOnChain } from '@/lib/onchain/roles'
-import { serverPublicClient } from '@/lib/onchain/public-client'
+import { serverPublicClient, redeemOperatorWalletClient } from '@/lib/onchain/public-client'
 import { erc721Abi } from '@/lib/abis/erc721'
 import { redeemNftSettlementAbi } from '@/lib/abis/redeem-nft-settlement'
+import { rwaEscrowAbi } from '@/lib/abis/rwa-escrow'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { parseBaseUnitsAmount } from '@/lib/amount'
 import type { RedeemItemVariant, RedeemKind, RedeemTier } from '@/types/redeem'
@@ -93,6 +94,11 @@ export async function POST(request: NextRequest) {
     // STEP 1.3 — publish/redeem-window dates. An item with no publish_at (or one already in the
     // past) goes live immediately; scheduling a future publish_at is stored but a cron/backend job
     // to flip draft -> published at that time doesn't exist yet — see docs/Marketplace_Redeem_Feature.md.
+    const maxPerWallet = body?.max_per_wallet != null ? Number(body.max_per_wallet) : null
+    if (maxPerWallet != null && (!Number.isInteger(maxPerWallet) || maxPerWallet < 1)) {
+        return NextResponse.json({ error: 'max_per_wallet must be a positive integer or null (unlimited)' }, { status: 400 })
+    }
+
     const publishAt = typeof body?.publish_at === 'string' && body.publish_at ? body.publish_at : null
     const redeemStartAt = typeof body?.redeem_start_at === 'string' && body.redeem_start_at ? body.redeem_start_at : null
     const redeemEndAt = typeof body?.redeem_end_at === 'string' && body.redeem_end_at ? body.redeem_end_at : null
@@ -170,6 +176,43 @@ export async function POST(request: NextRequest) {
         if (stock != null && (!Number.isFinite(stock) || stock < 0)) {
             return NextResponse.json({ error: 'stock must be a non-negative number or null (unlimited)' }, { status: 400 })
         }
+
+        // Merch redemption funds through the Redeem RwaEscrow deployment, which reverts unless
+        // paymentToken is on its own allowedPaymentTokens allowlist (see RwaEscrow.sol's `fund`).
+        // Listers can only pick from lib/tokens.ts's fixed, pre-verified token list — never an
+        // arbitrary address — so there's no reason to make them (or an admin) separately allow-list
+        // it on-chain too; the operator wallet holds TOKEN_MANAGER_ROLE on this deployment
+        // specifically to close that gap here, best-effort, so a first-ever item in a given token
+        // just works instead of every buyer hitting "payment token not allowed" until someone
+        // notices and fixes it by hand via /app/admin.
+        const redeemEscrowAddress = CONTRACT_ADDRESSES.redeemRwaEscrow
+        if (redeemEscrowAddress) {
+            try {
+                const client = serverPublicClient()
+                const alreadyAllowed = await client.readContract({
+                    address: redeemEscrowAddress as `0x${string}`,
+                    abi: rwaEscrowAbi,
+                    functionName: 'allowedPaymentTokens',
+                    args: [paymentToken as `0x${string}`],
+                })
+                if (!alreadyAllowed) {
+                    const wallet = redeemOperatorWalletClient()
+                    const hash = await wallet.writeContract({
+                        chain: wallet.chain,
+                        account: wallet.account,
+                        address: redeemEscrowAddress as `0x${string}`,
+                        abi: rwaEscrowAbi,
+                        functionName: 'setAllowedPaymentToken',
+                        args: [paymentToken as `0x${string}`, true],
+                    })
+                    await client.waitForTransactionReceipt({ hash })
+                }
+            } catch (err) {
+                // Non-fatal: the item still gets created (e.g. for an admin to allow manually via
+                // /app/admin) rather than blocking listing creation on an RPC hiccup.
+                console.error('redeem items: auto-allow payment token failed', err)
+            }
+        }
         if (Array.isArray(body?.variants)) {
             variants = body.variants
                 .filter((v: unknown): v is VariantInput => typeof (v as VariantInput)?.label === 'string' && Boolean((v as VariantInput).label.trim()))
@@ -208,6 +251,7 @@ export async function POST(request: NextRequest) {
             stock: variants.length > 0 ? null : stock,
             // Only meaningful for merch — an NFT settles on-chain and never ships anywhere.
             thailand_only: kind === 'merch' && body?.thailand_only === true,
+            max_per_wallet: maxPerWallet,
             publish_at: publishAt,
             redeem_start_at: redeemStartAt,
             redeem_end_at: redeemEndAt,

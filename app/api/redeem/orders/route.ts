@@ -5,7 +5,7 @@ import { getSessionWallet } from '@/lib/auth/session'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { computeRedeemOfferHash, redeemOfferDomain, REDEEM_OFFER_TYPES, type RedeemOffer } from '@/lib/eip712'
 import type { ShippingInfo } from '@/types/redeem'
-import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
+import { CONTRACT_ADDRESSES, DEFAULT_CHAIN_ID } from '@/config/contract-addresses'
 
 async function logOrderCreated(orderId: string, actorWallet: string, metadata: Record<string, unknown>) {
     await supabaseAdmin().from('audit_logs').insert({
@@ -65,6 +65,22 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'the redeem window for this item has closed' }, { status: 403 })
     }
 
+    // App-level only (not a smart-contract constraint) — counts this wallet's own orders on this
+    // item that got past 'PendingPayment' (i.e. actually paid/escrowed on-chain), so an abandoned
+    // wallet-rejected attempt never counts against the cap.
+    if (item.max_per_wallet != null) {
+        const { count, error: countError } = await supabaseAdmin()
+            .from('redemption_orders')
+            .select('id', { count: 'exact', head: true })
+            .eq('item_id', item.id)
+            .eq('buyer_wallet', wallet)
+            .neq('status', 'PendingPayment')
+        if (countError) return NextResponse.json({ error: countError.message }, { status: 500 })
+        if ((count ?? 0) >= item.max_per_wallet) {
+            return NextResponse.json({ error: `you've already redeemed this item the maximum ${item.max_per_wallet} time(s) allowed` }, { status: 409 })
+        }
+    }
+
     let variant: { id: number; stock: number | null } | null = null
     if (variantId != null) {
         const { data, error } = await supabaseAdmin()
@@ -78,31 +94,15 @@ export async function POST(request: NextRequest) {
         variant = data
     }
 
-    // Automatic stock deduction (single-attempt optimistic lock — matches the store level below).
+    // Stock is NOT reserved/decremented here — only a read-only UX check. The buyer hasn't paid or
+    // escrowed anything on-chain yet at order-creation time, so decrementing now would let an
+    // abandoned/never-paid order (wallet rejection, revert, tab closed) permanently lock a unit.
+    // The real decrement happens once the sync poller confirms the on-chain payment/escrow event
+    // (handleNftRedeemed / handleRedeemRwaFunded in services/sync/handlers.ts), per Clean Workflow.
     if (variant) {
-        if (variant.stock != null) {
-            if (variant.stock <= 0) return NextResponse.json({ error: 'out of stock' }, { status: 409 })
-            const { data: decremented, error } = await supabaseAdmin()
-                .from('redeem_item_variants')
-                .update({ stock: variant.stock - 1 })
-                .eq('id', variant.id)
-                .eq('stock', variant.stock)
-                .select('id')
-                .maybeSingle()
-            if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-            if (!decremented) return NextResponse.json({ error: 'out of stock — please try again' }, { status: 409 })
-        }
-    } else if (item.stock != null) {
-        if (item.stock <= 0) return NextResponse.json({ error: 'out of stock' }, { status: 409 })
-        const { data: decremented, error } = await supabaseAdmin()
-            .from('redeem_items')
-            .update({ stock: item.stock - 1 })
-            .eq('id', item.id)
-            .eq('stock', item.stock)
-            .select('id')
-            .maybeSingle()
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-        if (!decremented) return NextResponse.json({ error: 'out of stock — please try again' }, { status: 409 })
+        if (variant.stock != null && variant.stock <= 0) return NextResponse.json({ error: 'out of stock' }, { status: 409 })
+    } else if (item.stock != null && item.stock <= 0) {
+        return NextResponse.json({ error: 'out of stock' }, { status: 409 })
     }
 
     const baseOrder = {
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
         const operatorAddress = CONTRACT_ADDRESSES.redeemOperator
         const settlementAddress = CONTRACT_ADDRESSES.redeemNftSettlement
         const junoPtsAddress = CONTRACT_ADDRESSES.junoPts
-        const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 96)
+        const chainId = DEFAULT_CHAIN_ID
         if (!operatorKey || !operatorAddress || !settlementAddress || !junoPtsAddress) {
             return NextResponse.json({ error: 'Redeem NFT settlement is not configured yet' }, { status: 500 })
         }

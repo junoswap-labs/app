@@ -59,6 +59,7 @@ export default function EditRedeemItemPage({ params }: { params: Promise<{ itemI
     const [amount2, setAmount2] = useState('')
     const [token2, setToken2] = useState<SelectedToken | null>(null)
     const [stock, setStock] = useState('')
+    const [maxPerWallet, setMaxPerWallet] = useState('')
     const [variants, setVariants] = useState<VariantRow[]>([])
     const [publishAt, setPublishAt] = useState('')
     const [redeemStartAt, setRedeemStartAt] = useState('')
@@ -73,6 +74,7 @@ export default function EditRedeemItemPage({ params }: { params: Promise<{ itemI
         setDescription(item.description)
         setImageUrls(item.image_urls.length > 0 ? item.image_urls : [null])
         setStock(item.stock != null ? String(item.stock) : '')
+        setMaxPerWallet(item.max_per_wallet != null ? String(item.max_per_wallet) : '')
         setVariants((item.variants ?? []).map((v) => ({ id: v.id, label: v.label, sku: v.sku ?? '', stock: v.stock != null ? String(v.stock) : '' })))
         setPublishAt(toDateTimeLocal(item.publish_at))
         setRedeemStartAt(toDateTimeLocal(item.redeem_start_at))
@@ -137,6 +139,7 @@ export default function EditRedeemItemPage({ params }: { params: Promise<{ itemI
                 payment_token_symbol: tokenLeg?.token?.symbol ?? null,
                 payment_amount: tokenLeg?.token && tokenLeg.amount ? parseUnits(tokenLeg.amount, tokenLeg.token.decimals).toString() : null,
                 stock: item.kind === 'merch' && variants.length === 0 && stock ? Number(stock) : null,
+                max_per_wallet: maxPerWallet ? Number(maxPerWallet) : null,
                 variants:
                     item.kind === 'merch'
                         ? variants
@@ -240,6 +243,11 @@ export default function EditRedeemItemPage({ params }: { params: Promise<{ itemI
                             <Separator />
                         </>
                     )}
+
+                    <div className="space-y-1.5">
+                        <Label htmlFor="maxPerWallet">Max redemptions per wallet (blank = unlimited)</Label>
+                        <Input id="maxPerWallet" type="number" min="1" className="max-w-40" value={maxPerWallet} onChange={(e) => setMaxPerWallet(e.target.value)} />
+                    </div>
 
                     <div className="grid gap-4 sm:grid-cols-3">
                         <div className="space-y-1.5">

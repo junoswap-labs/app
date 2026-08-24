@@ -41,6 +41,9 @@ export interface RedeemItem {
     stock: number | null
     /** merch kind only — rejects an order whose shipping country isn't Thailand. */
     thailand_only: boolean
+    /** Null = unlimited. Enforced app-side at order creation (app/api/redeem/orders), not on-chain —
+     *  counts a wallet's own orders on this item that reached past 'PendingPayment'. */
+    max_per_wallet: number | null
     variants?: RedeemItemVariant[]
     publish_at: string | null
     redeem_start_at: string | null
@@ -93,6 +96,10 @@ export type RedemptionStatus =
     | 'ResolvedSeller'
     | 'ResolvedBuyer'
 
+/** 'fake_shipment' — buyer: tracking is bogus / nothing arrived. 'buyer_unresponsive' — seller:
+ *  buyer won't confirm receipt. Matches which party (buyer/seller) is allowed to file each one. */
+export type RedeemDisputeReason = 'fake_shipment' | 'buyer_unresponsive'
+
 export interface RedemptionOrder {
     id: string
     item_id: number
@@ -114,6 +121,11 @@ export interface RedemptionOrder {
     shipped_at: string | null
     completed_at: string | null
     resolved_at: string | null
+    dispute_reason: RedeemDisputeReason | null
+    dispute_detail: string | null
+    dispute_evidence_urls: string[] | null
+    dispute_reported_by: string | null
+    dispute_reported_at: string | null
     // Denormalized by the Route Handler's join (redeem_items.name/image_urls) — not DB columns on
     // this table.
     item_name?: string

@@ -39,6 +39,12 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
     }
 
     bytes32 public constant ARBITRATOR_ROLE = keccak256("ARBITRATOR_ROLE");
+    // Narrower than DEFAULT_ADMIN_ROLE on purpose: the Redeem deployment grants this to its
+    // server-side operator wallet (see contracts/script/DeployRwaEscrow.s.sol) so item creation can
+    // auto-allow a payment token the moment a listing needs it, without handing that hot wallet
+    // pause/fee/arbitrator power too. The Marketplace deployment leaves this role ungranted —
+    // trading there stays a manual, deliberate admin decision per token.
+    bytes32 public constant TOKEN_MANAGER_ROLE = keccak256("TOKEN_MANAGER_ROLE");
 
     // Set once at deploy time (not hardcoded constants) so a testnet deployment can use minutes
     // instead of days for fast iteration, while mainnet uses the real day-scale values — same
@@ -102,6 +108,11 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
         AUTO_RELEASE_DEADLINE = _autoReleaseDeadline;
         EXTENSION_PERIOD = _extensionPeriod;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        // Deployer keeps the ability to allow/disallow tokens directly (onlyRole checks aren't
+        // hierarchical under DEFAULT_ADMIN_ROLE — it only manages granting other roles, so this
+        // needs its own grant). DeployRwaEscrow.s.sol additionally grants this role to the Redeem
+        // operator wallet on the Redeem deployment only.
+        _grantRole(TOKEN_MANAGER_ROLE, msg.sender);
     }
 
     function fund(bytes32 listingId, address seller, address paymentToken, uint256 amount)
@@ -233,7 +244,7 @@ contract RwaEscrow is AccessControl, Pausable, ReentrancyGuard {
 
     function setAllowedPaymentToken(address token, bool allowed)
         external
-        onlyRole(DEFAULT_ADMIN_ROLE)
+        onlyRole(TOKEN_MANAGER_ROLE)
     {
         allowedPaymentTokens[token] = allowed;
         emit PaymentTokenAllowed(token, allowed);

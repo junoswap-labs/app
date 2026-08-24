@@ -256,6 +256,46 @@ async function logRedeemAudit(params: {
     if (error && error.code !== '23505') throw error
 }
 
+/**
+ * Decrements the item/variant stock this order claimed — called only once, from the handler that
+ * observes the buyer's on-chain payment/escrow confirming for the first time (never at order
+ * creation, see the Route Handler's comment). Best-effort: if stock already hit 0 (two buyers
+ * raced the same last unit and both paid on-chain before either got confirmed), the payment still
+ * stands — there's no way to claw back a completed on-chain tx — so this just skips the decrement
+ * rather than throwing, leaving the oversold order for an admin to notice and handle manually.
+ */
+async function decrementRedeemStock(itemId: number, variantId: number | null): Promise<void> {
+    if (variantId != null) {
+        const { data: variant, error } = await supabaseAdmin()
+            .from('redeem_item_variants')
+            .select('stock')
+            .eq('id', variantId)
+            .maybeSingle()
+        if (error) throw error
+        if (!variant || variant.stock == null) return
+        await supabaseAdmin()
+            .from('redeem_item_variants')
+            .update({ stock: variant.stock - 1 })
+            .eq('id', variantId)
+            .eq('stock', variant.stock)
+            .gt('stock', 0)
+    } else {
+        const { data: item, error } = await supabaseAdmin()
+            .from('redeem_items')
+            .select('stock')
+            .eq('id', itemId)
+            .maybeSingle()
+        if (error) throw error
+        if (!item || item.stock == null) return
+        await supabaseAdmin()
+            .from('redeem_items')
+            .update({ stock: item.stock - 1 })
+            .eq('id', itemId)
+            .eq('stock', item.stock)
+            .gt('stock', 0)
+    }
+}
+
 /** RedeemNftSettlement.NftRedeemed — the NFT leg settles atomically, straight to 'Completed'. */
 export async function handleNftRedeemed(log: DecodedLog): Promise<void> {
     const { offerHash } = log.args as { offerHash: string }
@@ -264,10 +304,11 @@ export async function handleNftRedeemed(log: DecodedLog): Promise<void> {
         .update({ status: 'Completed', completed_at: new Date().toISOString() })
         .eq('offer_hash', offerHash)
         .eq('status', 'PendingPayment')
-        .select('id')
+        .select('id, item_id, variant_id')
         .maybeSingle()
     if (error) throw error
     if (!data) return // already processed, or the row hasn't been inserted yet — safe to skip
+    await decrementRedeemStock(data.item_id, data.variant_id)
     await logRedeemAudit({ action: 'redeem.nft_completed', subjectId: data.id, newStatus: 'Completed', log })
 }
 
@@ -278,10 +319,11 @@ export async function handleRedeemRwaFunded(log: DecodedLog): Promise<void> {
         .update({ status: 'Funded', updated_at: new Date(Number(fundedAt) * 1000).toISOString() })
         .eq('escrow_listing_id', listingId)
         .eq('status', 'PendingPayment')
-        .select('id')
+        .select('id, item_id, variant_id')
         .maybeSingle()
     if (error) throw error
     if (!data) return
+    await decrementRedeemStock(data.item_id, data.variant_id)
     await logRedeemAudit({
         action: 'redeem.merch_funded',
         subjectId: data.id,

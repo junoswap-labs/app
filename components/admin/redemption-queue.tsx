@@ -10,6 +10,7 @@ import { useAdminRedeemOrders, useAttachTracking } from '@/hooks/useRedeemOrders
 import { useMarkRedeemShipped } from '@/hooks/useRedeemMerchActions'
 import { useAsyncAction } from '@/hooks/useAsyncAction'
 import { formatShippingLines, redeemPriceLabel } from '@/lib/redeem-format'
+import { ReportDisputeDialog } from '@/components/redeem/report-dispute-dialog'
 import { useChainId } from 'wagmi'
 import type { RedemptionOrder } from '@/types/redeem'
 
@@ -100,10 +101,20 @@ export function RedemptionQueue() {
                             </div>
                         )}
 
-                        {o.status === 'Shipped' && (
-                            <div className="text-xs text-muted-foreground">
-                                {o.tracking_number ? `Tracking: ${o.tracking_number}` : 'Awaiting buyer confirmation'}
+                        {o.status === 'Shipped' && o.escrow_listing_id && o.shipped_at && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                    {o.tracking_number ? `Tracking: ${o.tracking_number}` : 'Awaiting buyer confirmation'}
+                                </span>
+                                <ReportDisputeDialog role="seller" orderId={o.id} listingId={o.escrow_listing_id as `0x${string}`} shippedAt={o.shipped_at} />
                             </div>
+                        )}
+
+                        {o.status === 'Disputed' && (
+                            <p className="max-w-xs text-xs text-muted-foreground">
+                                {o.dispute_reason === 'fake_shipment' ? 'Buyer reports item not received' : 'Seller reports buyer unresponsive'} —
+                                awaiting admin review.
+                            </p>
                         )}
                     </CardContent>
                 </Card>

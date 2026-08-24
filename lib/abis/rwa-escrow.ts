@@ -204,6 +204,7 @@ export const rwaEscrowAbi = [
         outputs: [{ type: 'bool' }],
     },
     { type: 'function', name: 'ARBITRATOR_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
+    { type: 'function', name: 'TOKEN_MANAGER_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
     {
         type: 'function',
         name: 'hasRole',
@@ -213,6 +214,16 @@ export const rwaEscrowAbi = [
             { name: 'account', type: 'address' },
         ],
         outputs: [{ type: 'bool' }],
+    },
+    {
+        type: 'function',
+        name: 'setAllowedPaymentToken',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'token', type: 'address' },
+            { name: 'allowed', type: 'bool' },
+        ],
+        outputs: [],
     },
 ] as const
 
@@ -228,6 +239,7 @@ export const rwaEscrowAdminAbi = [
         outputs: [{ type: 'bytes32' }],
     },
     { type: 'function', name: 'ARBITRATOR_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
+    { type: 'function', name: 'TOKEN_MANAGER_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
     {
         type: 'function',
         name: 'hasRole',

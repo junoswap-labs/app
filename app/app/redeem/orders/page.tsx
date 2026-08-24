@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useChainId } from 'wagmi'
+import { useAccount, useChainId } from 'wagmi'
 import { Package, Sparkles, ImageOff } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -13,7 +13,8 @@ import { useMyRedeemOrders } from '@/hooks/useRedeemOrders'
 import { redeemPriceLabel } from '@/lib/redeem-format'
 
 export default function MyRedemptionsPage() {
-    const { data: orders, isLoading } = useMyRedeemOrders()
+    const { isConnected } = useAccount()
+    const { data: orders, isLoading, isError, error } = useMyRedeemOrders()
     const chainId = useChainId()
 
     return (
@@ -28,7 +29,17 @@ export default function MyRedemptionsPage() {
                 </p>
             </div>
 
-            {isLoading ? null : !orders || orders.length === 0 ? (
+            {isLoading ? null : !isConnected ? (
+                <EmptyState
+                    title="Connect your wallet"
+                    description="Your redemptions are tied to your wallet address."
+                />
+            ) : isError ? (
+                <EmptyState
+                    title="Couldn't load your redemptions"
+                    description={error instanceof Error ? error.message : 'Something went wrong — try refreshing the page.'}
+                />
+            ) : !orders || orders.length === 0 ? (
                 <EmptyState
                     title="No redemptions yet"
                     description="Items you redeem will show up here with their status and tracking."
@@ -78,6 +89,7 @@ export default function MyRedemptionsPage() {
 
                                 {o.status === 'Shipped' && o.escrow_listing_id && o.shipped_at && (
                                     <RedemptionAutoReleasePanel
+                                        orderId={o.id}
                                         listingId={o.escrow_listing_id as `0x${string}`}
                                         shippedAt={o.shipped_at}
                                     />

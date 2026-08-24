@@ -1,7 +1,6 @@
 'use client'
 
 import { useReadContract } from 'wagmi'
-import type { Address } from 'viem'
 import { rwaEscrowAbi } from '@/lib/abis/rwa-escrow'
 import { DeadlineCountdown } from '@/components/rwa/ship-deadline-countdown'
 import { Button } from '@/components/ui/button'
@@ -9,6 +8,7 @@ import { useConfirmRedeemReceived, useExtendRedeemAutoRelease, useClaimRedeemShi
 import { useAsyncAction } from '@/hooks/useAsyncAction'
 import { AUTO_RELEASE_DEADLINE_MS } from '@/types/rwa'
 import { useContractAddresses } from '@/hooks/useContractAddresses'
+import { ReportDisputeDialog } from '@/components/redeem/report-dispute-dialog'
 
 type ActionKey = 'confirm' | 'extend' | 'claim'
 
@@ -17,7 +17,15 @@ type ActionKey = 'confirm' | 'extend' | 'claim'
  * only known on-chain (see contracts/src/RwaEscrow.sol's autoReleaseExtension mapping, deliberately
  * not mirrored into Supabase), so this reads it live instead of guessing from order history.
  */
-export function RedemptionAutoReleasePanel({ listingId, shippedAt }: { listingId: `0x${string}`; shippedAt: string }) {
+export function RedemptionAutoReleasePanel({
+    orderId,
+    listingId,
+    shippedAt,
+}: {
+    orderId: string
+    listingId: `0x${string}`
+    shippedAt: string
+}) {
     const { redeemRwaEscrow: REDEEM_RWA_ESCROW_ADDRESS } = useContractAddresses()
     const { data: extensionSecs } = useReadContract({
         address: REDEEM_RWA_ESCROW_ADDRESS,
@@ -74,6 +82,7 @@ export function RedemptionAutoReleasePanel({ listingId, shippedAt }: { listingId
                         Release to lister (deadline passed)
                     </Button>
                 )}
+                <ReportDisputeDialog role="buyer" orderId={orderId} listingId={listingId} shippedAt={shippedAt} />
             </div>
         </div>
     )

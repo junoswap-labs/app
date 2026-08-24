@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Breadcrumb } from '@/components/ui/breadcrumb'
+import { ExplorerLink } from '@/components/ui/explorer-link'
 import { ListedBy } from '@/components/redeem/listed-by'
 import { RedemptionStatusTracker } from '@/components/redeem/redemption-status-tracker'
 import { useRedeemItem } from '@/hooks/useRedeemItems'
@@ -20,7 +21,7 @@ import { useMyRedeemOrders, useRedeemOrderLogs } from '@/hooks/useRedeemOrders'
 import { useCreateRedeemOrder } from '@/hooks/useCreateRedeemOrder'
 import { useJunoPtsBalance } from '@/hooks/useJunoPtsBalance'
 import { erc20Abi } from '@/lib/abis/erc20'
-import { redeemPriceLabel } from '@/lib/redeem-format'
+import { redeemPriceLabel, redeemLogLabel } from '@/lib/redeem-format'
 import { getSavedShipping, saveShipping } from '@/lib/redeem-shipping-storage'
 import { DEFAULT_SHIPPING, ShippingAddressForm, isShippingComplete } from '@/components/redeem/shipping-address-form'
 import { JUNO_PTS_DECIMALS } from '@/types/redeem'
@@ -52,6 +53,9 @@ export default function RedeemItemDetailPage({ params }: { params: Promise<{ ite
     })
 
     const myOrderForItem = myOrders?.find((o) => o.item_id === item?.id)
+    // Same "past PendingPayment" definition the server enforces in app/api/redeem/orders/route.ts —
+    // an abandoned/wallet-rejected attempt doesn't count against the cap.
+    const myRedeemCount = myOrders?.filter((o) => o.item_id === item?.id && o.status !== 'PendingPayment').length ?? 0
     const { data: logs } = useRedeemOrderLogs(myOrderForItem?.id)
 
     if (isLoading) return null
@@ -88,6 +92,17 @@ export default function RedeemItemDetailPage({ params }: { params: Promise<{ ite
     const shippingIncomplete = needsShipping && !isShippingComplete(shipping)
     const needsVariant = hasVariants && variantId == null
 
+    // UX only, mirrors RwaEscrow.fund()'s `require(seller != msg.sender, "self trade")` — the
+    // contract is what actually enforces it (a mismatched wallet's tx would just revert), this only
+    // saves a doomed on-chain attempt. Only meaningful for merch/registered: that's the only case
+    // where payout_wallet IS the on-chain `seller` param (official items settle through the
+    // treasury, not the lister, and NFT kind has no such contract-level guard at all).
+    const isSelfTrade =
+        item.kind === 'merch' && item.tier === 'registered' && Boolean(item.payout_wallet) && Boolean(address) &&
+        item.payout_wallet!.toLowerCase() === address!.toLowerCase()
+
+    const atWalletLimit = item.max_per_wallet != null && myRedeemCount >= item.max_per_wallet
+
     const disabled =
         Boolean(notOpenYet) ||
         Boolean(closed) ||
@@ -96,6 +111,8 @@ export default function RedeemItemDetailPage({ params }: { params: Promise<{ ite
         Boolean(insufficientToken) ||
         shippingIncomplete ||
         needsVariant ||
+        isSelfTrade ||
+        atWalletLimit ||
         createOrder.isPending
 
     const redeem = async () => {
@@ -217,37 +234,51 @@ export default function RedeemItemDetailPage({ params }: { params: Promise<{ ite
                             {needsShipping && shippingIncomplete && (
                                 <p className="text-xs text-muted-foreground">Fill in the shipping address to continue.</p>
                             )}
+                            {isSelfTrade && <p className="text-xs text-destructive">You listed this item — you can&apos;t redeem your own listing.</p>}
+                            {atWalletLimit && (
+                                <p className="text-xs text-destructive">
+                                    You&apos;ve already redeemed this item {item.max_per_wallet} {item.max_per_wallet === 1 ? 'time' : 'times'} — that&apos;s the limit per wallet.
+                                </p>
+                            )}
 
                             <Button className="w-full" disabled={disabled} isLoading={createOrder.isPending} loadingText="Redeeming…" onClick={redeem}>
-                                {outOfStock ? 'Sold out' : 'Redeem'}
+                                {outOfStock ? 'Sold out' : isSelfTrade ? "Can't redeem your own listing" : atWalletLimit ? 'Limit reached' : 'Redeem'}
                             </Button>
                         </CardContent>
                     </Card>
-
-                    {myOrderForItem && (
-                        <Card>
-                            <CardContent className="space-y-3 p-5">
-                                <p className="text-sm font-medium">Your redemption</p>
-                                <RedemptionStatusTracker status={myOrderForItem.status} kind={myOrderForItem.kind} />
-                                {myOrderForItem.tracking_number && (
-                                    <p className="text-xs text-muted-foreground">Tracking: {myOrderForItem.tracking_number}</p>
-                                )}
-                                {Array.isArray(logs) && logs.length > 0 && (
-                                    <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground">
-                                        <p className="font-medium text-foreground">Redeem logs</p>
-                                        {logs.map((log: { id: string; action: string; created_at: string }) => (
-                                            <div key={log.id} className="flex justify-between gap-2">
-                                                <span>{log.action}</span>
-                                                <span>{new Date(log.created_at).toLocaleString()}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    )}
                 </div>
             </div>
+
+            {/* Full-width bottom bar rather than squeezed into the 380px sidebar rail — the status
+                tracker's steps need real horizontal room, especially the 4-step merch flow. */}
+            {myOrderForItem && (
+                <Card className="mt-8">
+                    <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="space-y-1">
+                            <p className="text-sm font-medium">Your redemption</p>
+                            {myOrderForItem.tracking_number && (
+                                <p className="text-xs text-muted-foreground">Tracking: {myOrderForItem.tracking_number}</p>
+                            )}
+                        </div>
+                        <RedemptionStatusTracker status={myOrderForItem.status} kind={myOrderForItem.kind} />
+                    </CardContent>
+                    {Array.isArray(logs) && logs.length > 0 && (
+                        <CardContent className="grid gap-x-6 gap-y-1 border-t p-5 pt-4 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
+                            {logs.map((log: { id: string; action: string; created_at: string; tx_hash: string | null }) => (
+                                <div key={log.id} className="flex justify-between gap-2">
+                                    <span>{redeemLogLabel(log.action)}</span>
+                                    <span className="flex items-center gap-2">
+                                        {log.tx_hash && (
+                                            <ExplorerLink value={log.tx_hash} type="tx" chainId={chainId} compact startChars={6} endChars={4} />
+                                        )}
+                                        {new Date(log.created_at).toLocaleString()}
+                                    </span>
+                                </div>
+                            ))}
+                        </CardContent>
+                    )}
+                </Card>
+            )}
         </div>
     )
 }
