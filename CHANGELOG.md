@@ -7,8 +7,22 @@ Releases are cut with the `ship-version` skill — do not hand-edit a released s
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-24
+
 ### Added
 
+- Structured shipping address form (recipient, phone, street, district, province, postal code,
+  country) replacing free-text; old orders keep their original free-text address. Merch items can
+  be restricted to Thailand-only shipping (migration `0015`), enforced server-side.
+- NftMarketplace, RwaEscrow (both deployments), and RedeemNftSettlement deployed to kub-testnet;
+  contract/wallet addresses moved out of `.env` into chain-aware `config/contract-addresses.ts`,
+  resolved off the wallet's connected chain via `useContractAddresses()`.
+- `RwaEscrow.TOKEN_MANAGER_ROLE` lets the Redeem operator wallet auto-allow a payment token on item
+  creation without full `DEFAULT_ADMIN_ROLE`. **Requires a redeploy.**
+- Buyer/seller dispute reporting for Shipped merch orders (reason + evidence photos, migration
+  `0016`), with an Admin Disputes queue section for Redeem merch.
+- Per-item "max redemptions per wallet" cap (migration `0017`), enforced on order creation and
+  gated client-side.
 - Airdrop campaigns can be edited after creation (title, description, cover image, visibility,
   geofence, IP dedupe) at `/app/airdrop/[campaignId]/edit`.
 - `AirdropEscrow.endCampaign()` — creator or admin can force-end a live campaign, which also makes
@@ -42,12 +56,18 @@ Releases are cut with the `ship-version` skill — do not hand-edit a released s
   only revert.
 - Cover images and Redeem item images are restricted to files uploaded through this app; external
   URLs are rejected.
+- Stock now decrements on sync-confirmed payment instead of at order creation, so an abandoned
+  order can no longer permanently lock a unit.
 
 ### Changed
 
 - Google OAuth account linking removed — Telegram is the only linked account.
 - Settings and Admin moved out of the header nav into the wallet dropdown.
 - React Query defaults (30s `staleTime`, no refetch on window focus) to stop redundant refetches.
+- `app/app/airdrop/create/page.tsx` and `app/app/redeem/list/page.tsx` split into smaller
+  components (wizard steps, form field groups) — no behavior change.
+- Revert-reason decoding consolidated into `lib/toast.ts`'s `errorReason()` for consistent toasts
+  across write hooks.
 
 ## [0.1.0] - 2026-08-21
 
