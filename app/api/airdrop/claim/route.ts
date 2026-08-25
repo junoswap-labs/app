@@ -5,6 +5,7 @@ import { getSessionWallet } from '@/lib/auth/session'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { airdropClaimDomain, AIRDROP_CLAIM_TYPES, type AirdropClaimAuthorization } from '@/lib/eip712'
 import type { AirdropClaimAttemptOutcome } from '@/types/airdrop'
+import { CONTRACT_ADDRESSES, DEFAULT_CHAIN_ID } from '@/config/contract-addresses'
 
 const CAMPAIGN_ID_RE = /^0x[0-9a-fA-F]{64}$/
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
@@ -154,8 +155,8 @@ export async function POST(request: NextRequest) {
 
     if (campaign.gas_mode === 'self') {
         const signerKey = process.env.AIRDROP_SIGNER_PRIVATE_KEY
-        const escrowAddress = process.env.NEXT_PUBLIC_AIRDROP_ESCROW_ADDRESS
-        const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 96)
+        const escrowAddress = CONTRACT_ADDRESSES.airdropEscrow
+        const chainId = DEFAULT_CHAIN_ID
         if (!signerKey || !escrowAddress) {
             return NextResponse.json({ error: 'the airdrop claim signer is not configured yet' }, { status: 500 })
         }

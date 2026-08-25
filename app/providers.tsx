@@ -6,9 +6,25 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
 import { wagmiConfig } from '@/lib/wagmi'
 import { Toaster } from '@/components/ui/sonner'
+import { SiweAutoSignIn } from '@/components/auth/siwe-auto-sign-in'
 
 export function Providers({ children }: { children: React.ReactNode }) {
-    const [queryClient] = useState(() => new QueryClient())
+    // Defaults, not per-hook settings: without a staleTime every query refetches on each mount, so
+    // navigating back to a list re-hits Supabase for rows that are seconds old. Hooks that need
+    // fresher data (or polling) still override this locally.
+    const [queryClient] = useState(
+        () =>
+            new QueryClient({
+                defaultOptions: {
+                    queries: {
+                        staleTime: 30_000,
+                        gcTime: 5 * 60_000,
+                        refetchOnWindowFocus: false,
+                        retry: 1,
+                    },
+                },
+            })
+    )
 
     return (
         <WagmiProvider config={wagmiConfig}>
@@ -20,6 +36,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
                     disableTransitionOnChange
                 >
                     {children}
+                    <SiweAutoSignIn />
                     <Toaster />
                 </ThemeProvider>
             </QueryClientProvider>

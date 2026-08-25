@@ -4,8 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useChainId, useSignTypedData } from 'wagmi'
 import type { Address } from 'viem'
 import { NFT_ORDER_TYPES, nftOrderDomain, type NftOrder } from '@/lib/eip712'
-
-const NFT_MARKETPLACE_ADDRESS = process.env.NEXT_PUBLIC_NFT_MARKETPLACE_ADDRESS as Address | undefined
+import { getContractAddresses } from '@/config/contract-addresses'
 
 interface ListNftOrderInput {
     seller: Address
@@ -27,6 +26,7 @@ export function useListNftOrder() {
     const { signTypedDataAsync } = useSignTypedData()
     const chainId = useChainId()
     const queryClient = useQueryClient()
+    const { nftMarketplace: NFT_MARKETPLACE_ADDRESS } = getContractAddresses(chainId)
 
     return useMutation({
         mutationFn: async (input: ListNftOrderInput) => {

@@ -1,6 +1,7 @@
 import type { Address } from 'viem'
 import { permissionRegistryAbi } from '@/lib/abis/permission-registry'
 import { permissionRegistryAddress, serverPublicClient } from '@/lib/onchain/public-client'
+import { isDevRoleBypassActive } from '@/lib/onchain/dev-bypass'
 
 // Server-side role reads — the only legitimate way to answer "is this wallet an Admin/Partner?"
 // per this project's decision that roles live entirely on PermissionRegistry.sol, never in the DB.
@@ -10,6 +11,7 @@ import { cachedFetch } from '@/lib/server-cache'
 const ROLE_CHECK_TTL_SECONDS = 30
 
 function readRole(fn: 'isAdmin' | 'isPartnerMarketplace' | 'isPartnerRedeem' | 'isAuthorized', wallet: Address) {
+    if (isDevRoleBypassActive()) return Promise.resolve(true)
     return cachedFetch(
         `role:${fn}:${wallet.toLowerCase()}`,
         () =>

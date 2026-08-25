@@ -1,36 +1,25 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useAccount, usePublicClient, useReadContracts } from 'wagmi'
-import { formatUnits, parseUnits } from 'viem'
+import { parseUnits } from 'viem'
 import type { Address } from 'viem'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { DateTimePicker } from '@/components/ui/date-time-picker'
-import { ImageUploadField } from '@/components/ui/image-upload'
 import { erc20Abi } from '@/lib/abis/erc20'
-
-// Leaflet touches `window` at module load time, so it can only ever run client-side.
-const LocationPickerMap = dynamic(() => import('@/components/airdrop/location-picker-map').then((m) => m.LocationPickerMap), {
-    ssr: false,
-    loading: () => <div className="h-64 w-full animate-pulse rounded-md border bg-muted" />,
-})
+import { StepTokenAmount } from '@/components/airdrop/create-steps/step-token-amount'
+import { StepGas } from '@/components/airdrop/create-steps/step-gas'
+import { StepDetails } from '@/components/airdrop/create-steps/step-details'
+import { StepRestrictions } from '@/components/airdrop/create-steps/step-restrictions'
 import { useCreateAirdropCampaign } from '@/hooks/useAirdropActions'
+import { TxProgressDialog } from '@/components/airdrop/tx-progress'
 import { estimateAirdropGasDeposit } from '@/lib/onchain/airdrop-gas'
 import { toastSuccess, toastError } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import type { AirdropAmountMode, AirdropGasMode, AirdropVisibility } from '@/types/airdrop'
-import { ArrowLeft, Check, CircleHelp, Coins, Link2, Settings2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import Link from 'next/link'
-
-const RELAYER_ADDRESS = process.env.NEXT_PUBLIC_AIRDROP_RELAYER_ADDRESS
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 
@@ -62,6 +51,7 @@ function compareDecimalStrings(a: string, b: string): number {
 }
 
 export default function CreateAirdropPage() {
+    const { airdropRelayer: RELAYER_ADDRESS } = useContractAddresses()
     const router = useRouter()
     const { isConnected } = useAccount()
     const publicClient = usePublicClient()
@@ -87,6 +77,7 @@ export default function CreateAirdropPage() {
     const [locationLng, setLocationLng] = useState<number | null>(null)
     const [locationRadiusM, setLocationRadiusM] = useState('200')
     const [ipDedupeEnabled, setIpDedupeEnabled] = useState(false)
+    const [step, setStep] = useState(0)
 
     const validToken = ADDRESS_RE.test(tokenAddress)
     const { data: tokenMeta } = useReadContracts({
@@ -110,12 +101,29 @@ export default function CreateAirdropPage() {
     const autoTotal =
         amountMode === 'fixed' && limited && maxClaimantsNum > 0 ? multiplyDecimalString(fixedAmount, maxClaimantsNum) : null
 
-    // Random + Limited: mirrors AirdropEscrow.sol's createCampaign() feasibility check
-    // ("totalAmount cannot cover maxClaimants at minAmount") so the form catches it before submit.
+    // Random mode: the pool has to cover the *worst case*, maxAmount * maxClaimants, not just the
+    // contract's own floor (maxAmount alone, plus minAmount * maxClaimants when Limited). Funding
+    // only the floor makes the campaign lie: with min 1 / max 1000 over 10 claimants, a 1000 pool
+    // lets the first claimer draw up to 999 and the rest split crumbs, even though the form
+    // promised "up to 10 people, each getting between 1 and 1000". Sizing for the possibility is
+    // what makes that sentence true; the creator reclaims whatever goes unclaimed.
+    const maxForAllClaimants = limited && maxClaimantsNum > 0 ? multiplyDecimalString(maxAmount, maxClaimantsNum) : null
     const minRequiredTotal =
-        amountMode === 'random' && limited && maxClaimantsNum > 0 ? multiplyDecimalString(minAmount, maxClaimantsNum) : null
+        amountMode === 'random' && Number(maxAmount) > 0 ? (maxForAllClaimants ?? maxAmount) : null
     const totalTooLowForRandom =
         minRequiredTotal != null && DECIMAL_RE.test(totalAmount.trim()) && compareDecimalStrings(totalAmount.trim(), minRequiredTotal) < 0
+
+    const totalReadOnly = (amountMode === 'fixed' && limited && autoTotal != null) || (amountMode === 'random' && minRequiredTotal != null)
+    const totalHelperText =
+        amountMode === 'fixed' && limited
+            ? 'Calculated automatically: amount per claim × number of claimants.'
+            : amountMode === 'random'
+              ? (minRequiredTotal != null
+                    ? limited
+                        ? `Calculated automatically: max per claim × number of claimants (${minRequiredTotal} ${symbol}) — enough for everyone to hit the maximum. Whatever isn't claimed comes back to you.`
+                        : `Calculated automatically: at least max per claim (${minRequiredTotal} ${symbol}), since one claimer can draw that much.`
+                    : 'Set min and max per claim to see the total required.')
+              : 'The campaign runs until this pool is claimed out.'
 
     // Relayer mode needs a maxClaimants cap to size its gas escrow (contract-enforced — see
     // AirdropEscrow.sol's "relayer mode requires a maxClaimants cap"), so it's not a valid choice
@@ -127,6 +135,13 @@ export default function CreateAirdropPage() {
     useEffect(() => {
         if (autoTotal != null) setTotalAmount(autoTotal)
     }, [autoTotal])
+
+    // Random mode: no free-form entry either — total is locked to the minimum required (whichever
+    // of maxAmount or minAmount*claimants is stricter, see minRequiredTotal above) so a creator can
+    // never type in a total that would revert on-chain with "maxAmount exceeds totalAmount".
+    useEffect(() => {
+        if (amountMode === 'random' && minRequiredTotal != null) setTotalAmount(minRequiredTotal)
+    }, [amountMode, minRequiredTotal])
 
     const preview = (() => {
         if (amountMode === 'fixed') {
@@ -185,6 +200,22 @@ export default function CreateAirdropPage() {
         (gasMode === 'relayer' && !RELAYER_ADDRESS) ||
         (gasMode === 'relayer' && !limited)
 
+    const STEPS = ['Token & amount', 'Who pays gas?', 'Details', 'Restrictions'] as const
+    const stepIncomplete = [
+        !validToken ||
+            tokenDecimals == null ||
+            !tokenSymbol ||
+            !Number(totalAmount) ||
+            (amountMode === 'fixed' ? !Number(fixedAmount) : !Number(minAmount) || !Number(maxAmount)) ||
+            (limited && !Number(maxClaimants)) ||
+            totalTooLowForRandom,
+        gasMode === 'relayer' && (!RELAYER_ADDRESS || !limited),
+        !title.trim() || (hasExpiry && !expiresAt),
+        false,
+    ]
+    const goNext = () => setStep((s) => Math.min(s + 1, STEPS.length - 1))
+    const goBack = () => setStep((s) => Math.max(s - 1, 0))
+
     const submit = async () => {
         if (!isConnected) {
             toastError('Please connect your wallet first')
@@ -193,7 +224,7 @@ export default function CreateAirdropPage() {
         if (incomplete || tokenDecimals == null || !tokenSymbol) return
 
         try {
-            const { campaignId } = await createCampaign.createCampaignAsync({
+            await createCampaign.createCampaignAsync({
                 token: tokenAddress as Address,
                 tokenSymbol,
                 tokenDecimals,
@@ -216,308 +247,137 @@ export default function CreateAirdropPage() {
                 ipDedupeEnabled,
             })
             toastSuccess('Airdrop created')
-            router.push(`/app/airdrop/${campaignId}`)
+            router.push('/app/airdrop')
         } catch (err) {
             toastError(err instanceof Error ? err.message : 'Creating the airdrop failed')
         }
     }
 
     return (
-        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-10">
-            <Link href="/app/airdrop" className="mb-8 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to airdrops</Link>
-            <div className="mb-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-end">
-                <div>
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Creator workspace</p>
-                    <h1 className="text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Create an airdrop</h1>
-                    <p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">Set up a transparent token giveaway. Your campaign will be ready to share as a link or QR code once the transaction confirms.</p>
-                </div>
-                <div className="rounded-2xl border bg-card p-4">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Setup progress</p>
-                    <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full w-1/4 rounded-full bg-foreground" /></div>
-                    <p className="text-sm font-medium">1 of 4 sections started</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Token details come first</p>
-                </div>
-            </div>
+        <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6 sm:px-6 lg:py-10">
+            <Link href="/app/airdrop" className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back to airdrops</Link>
+            <header className="border-b pb-6">
+                <h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">Create an airdrop</h1>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">Set up a transparent token giveaway. Your campaign will be ready to share as a link or QR code once the transaction confirms.</p>
+            </header>
 
-            <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                <div className="flex gap-3 rounded-xl border bg-card p-4"><Coins className="h-5 w-5 shrink-0 text-muted-foreground" /><div><p className="text-sm font-medium">Fund the pool</p><p className="mt-1 text-xs text-muted-foreground">Choose token and amount</p></div></div>
-                <div className="flex gap-3 rounded-xl border bg-card p-4"><Settings2 className="h-5 w-5 shrink-0 text-muted-foreground" /><div><p className="text-sm font-medium">Set the rules</p><p className="mt-1 text-xs text-muted-foreground">Claims, expiry and gas</p></div></div>
-                <div className="flex gap-3 rounded-xl border bg-card p-4"><Link2 className="h-5 w-5 shrink-0 text-muted-foreground" /><div><p className="text-sm font-medium">Share with anyone</p><p className="mt-1 text-xs text-muted-foreground">Get a link and QR code</p></div></div>
-            </div>
-
-            <div className="mx-auto max-w-3xl space-y-4">
-
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">Token &amp; amount</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-1.5">
-                        <Label htmlFor="token">Token contract address</Label>
-                        <Input id="token" placeholder="0x…" value={tokenAddress} onChange={(e) => setTokenAddress(e.target.value.trim())} />
-                        {validToken && tokenSymbol && tokenDecimals != null && (
-                            <p className="text-xs text-muted-foreground">
-                                Detected: {tokenSymbol} ({tokenDecimals} decimals)
-                            </p>
-                        )}
-                        {validToken && tokenMeta && !tokenSymbol && (
-                            <p className="text-xs text-destructive">Couldn&apos;t read this token — check the address and chain.</p>
-                        )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <Label>Distribution</Label>
-                        <RadioGroup value={amountMode} onValueChange={(v) => setAmountMode(v as AirdropAmountMode)} className="grid-cols-2">
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="fixed" id="mode-fixed" />
-                                Fixed amount
-                            </label>
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="random" id="mode-random" />
-                                Random amount
-                            </label>
-                        </RadioGroup>
-                    </div>
-
-                    {amountMode === 'fixed' ? (
-                        <div className="space-y-1.5">
-                            <Label htmlFor="fixedAmount">Amount per claim{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                            <Input id="fixedAmount" type="number" min="0" value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)} />
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="minAmount">Min per claim{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                                <Input id="minAmount" type="number" min="0" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="maxAmount">Max per claim{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                                <Input id="maxAmount" type="number" min="0" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} />
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="space-y-1.5">
-                        <Label>Number of claimants</Label>
-                        <RadioGroup value={limited ? 'limited' : 'unlimited'} onValueChange={(v) => setLimited(v === 'limited')} className="grid-cols-2">
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="limited" id="claimants-limited" />
-                                Limited
-                            </label>
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="unlimited" id="claimants-unlimited" />
-                                Unlimited (until it runs out)
-                            </label>
-                        </RadioGroup>
-                        {limited && (
-                            <Input
-                                type="number"
-                                min="1"
-                                placeholder="Number of people"
-                                value={maxClaimants}
-                                onChange={(e) => setMaxClaimants(e.target.value)}
-                            />
-                        )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="totalAmount">Total giveaway amount{tokenSymbol ? ` (${tokenSymbol})` : ''}</Label>
-                            {amountMode === 'random' && limited && minRequiredTotal != null && (
-                                <button
-                                    type="button"
-                                    className="text-xs text-primary underline-offset-2 hover:underline"
-                                    onClick={() => setTotalAmount(minRequiredTotal)}
-                                >
-                                    Use minimum
-                                </button>
+            <div className="flex items-center gap-2">
+                {STEPS.map((label, i) => (
+                    <div key={label} className="flex flex-1 items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => i < step && setStep(i)}
+                            disabled={i > step}
+                            className={cn(
+                                'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium',
+                                i === step ? 'bg-primary text-primary-foreground' : i < step ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
                             )}
-                        </div>
-                        <Input
-                            id="totalAmount"
-                            type="number"
-                            min="0"
-                            value={totalAmount}
-                            onChange={(e) => setTotalAmount(e.target.value)}
-                            readOnly={amountMode === 'fixed' && limited && autoTotal != null}
-                            className={cn(totalTooLowForRandom && 'border-destructive focus-visible:ring-destructive')}
-                        />
-                        {amountMode === 'fixed' && limited ? (
-                            <p className="text-xs text-muted-foreground">Calculated automatically: amount per claim × number of claimants.</p>
-                        ) : amountMode === 'random' && limited ? (
-                            <p className={cn('text-xs', totalTooLowForRandom ? 'text-destructive' : 'text-muted-foreground')}>
-                                {minRequiredTotal != null
-                                    ? `Needs at least ${minRequiredTotal} ${symbol} to guarantee every claimant the minimum.`
-                                    : 'Set min per claim and number of claimants to see the minimum required.'}
-                            </p>
-                        ) : (
-                            <p className="text-xs text-muted-foreground">The campaign runs until this pool is claimed out.</p>
-                        )}
-                        {preview && <p className="text-xs font-medium">{preview}</p>}
+                        >
+                            {i < step ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                        </button>
+                        <span className={cn('hidden text-xs sm:inline', i === step ? 'font-medium text-foreground' : 'text-muted-foreground')}>{label}</span>
+                        {i < STEPS.length - 1 && <div className={cn('h-px flex-1', i < step ? 'bg-primary/40' : 'bg-border')} />}
                     </div>
+                ))}
+            </div>
 
-                    <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="hasExpiry">Set an expiry</Label>
-                            <Switch id="hasExpiry" checked={hasExpiry} onCheckedChange={setHasExpiry} />
-                        </div>
-                        {hasExpiry && <DateTimePicker value={expiresAt} onChange={setExpiresAt} />}
-                    </div>
-                </CardContent>
-            </Card>
-
-            {limited ? (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base">Who pays gas to claim?</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <RadioGroup value={gasMode} onValueChange={(v) => setGasMode(v as AirdropGasMode)} className="grid-cols-1">
-                            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
-                                <RadioGroupItem value="self" id="gas-self" className="mt-0.5" />
-                                <span>
-                                    <span className="font-medium">Claimers pay their own gas</span>
-                                    <br />
-                                    <span className="text-muted-foreground">No deposit needed from you.</span>
-                                </span>
-                            </label>
-                            <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
-                                <RadioGroupItem value="relayer" id="gas-relayer" className="mt-0.5" />
-                                <span>
-                                    <span className="font-medium">I pay gas for claimers</span>
-                                    <br />
-                                    <span className="text-muted-foreground">
-                                        Claimers pay nothing. You need to deposit KUB to the relayer wallet to cover their gas.
-                                    </span>
-                                </span>
-                            </label>
-                        </RadioGroup>
-                        {gasMode === 'relayer' && (
-                            <div className="space-y-1.5">
-                                {RELAYER_ADDRESS ? (
-                                    <p className="text-xs text-muted-foreground">
-                                        {gasDepositPreview != null
-                                            ? `Estimated gas deposit: ~${formatUnits(gasDepositPreview, 18)} KUB, held in the campaign contract and refundable via "Reclaim gas" once the campaign ends.`
-                                            : 'Set a limited number of claimants to see the estimated gas deposit.'}
-                                    </p>
-                                ) : (
-                                    <p className="text-xs text-destructive">The relayer service is not configured yet — ask an admin.</p>
-                                )}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-            ) : (
-                <Card>
-                    <CardContent className="pt-6">
-                        <p className="text-sm text-muted-foreground">
-                            <span className="font-medium text-foreground">Claimers pay their own gas.</span> Unlimited campaigns can&apos;t use
-                            the &quot;I pay gas for claimers&quot; option — it escrows gas per claim slot, which needs a fixed number of
-                            claimants. Switch to Limited above to enable it.
-                        </p>
-                    </CardContent>
-                </Card>
+            {step === 0 && (
+                <StepTokenAmount
+                    tokenAddress={tokenAddress}
+                    setTokenAddress={setTokenAddress}
+                    validToken={validToken}
+                    tokenSymbol={tokenSymbol}
+                    tokenDecimals={tokenDecimals}
+                    tokenMetaLoaded={Boolean(tokenMeta)}
+                    amountMode={amountMode}
+                    setAmountMode={setAmountMode}
+                    fixedAmount={fixedAmount}
+                    setFixedAmount={setFixedAmount}
+                    minAmount={minAmount}
+                    setMinAmount={setMinAmount}
+                    maxAmount={maxAmount}
+                    setMaxAmount={setMaxAmount}
+                    limited={limited}
+                    setLimited={setLimited}
+                    maxClaimants={maxClaimants}
+                    setMaxClaimants={setMaxClaimants}
+                    totalAmount={totalAmount}
+                    setTotalAmount={setTotalAmount}
+                    totalReadOnly={totalReadOnly}
+                    totalTooLowForRandom={totalTooLowForRandom}
+                    totalHelperText={totalHelperText}
+                    preview={preview}
+                    hasExpiry={hasExpiry}
+                    setHasExpiry={setHasExpiry}
+                    expiresAt={expiresAt}
+                    setExpiresAt={setExpiresAt}
+                />
             )}
 
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-1.5">
-                        <Label htmlFor="title">Title</Label>
-                        <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} />
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label htmlFor="description">Description</Label>
-                        <Textarea id="description" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
-                    </div>
-                    <ImageUploadField value={coverImageUrl} onChange={setCoverImageUrl} label="Cover image" />
-                    <div className="space-y-1.5">
-                        <Label>Who can find this?</Label>
-                        <RadioGroup value={visibility} onValueChange={(v) => setVisibility(v as AirdropVisibility)} className="grid-cols-2">
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="public" id="visibility-public" />
-                                Public
-                            </label>
-                            <label className="flex items-center gap-2 rounded-md border p-2.5 text-sm">
-                                <RadioGroupItem value="unlisted" id="visibility-unlisted" />
-                                QR code / link only
-                            </label>
-                        </RadioGroup>
-                        <p className="text-xs text-muted-foreground">
-                            {visibility === 'public'
-                                ? 'Shown on the Browse Airdrops page.'
-                                : "Not listed anywhere — only reachable by whoever has the QR code or share link."}
-                        </p>
-                    </div>
-                </CardContent>
-            </Card>
+            {step === 1 && (
+                <StepGas
+                    limited={limited}
+                    gasMode={gasMode}
+                    setGasMode={setGasMode}
+                    relayerAddress={RELAYER_ADDRESS}
+                    gasDepositPreview={gasDepositPreview}
+                />
+            )}
 
-            <Card>
-                <CardHeader>
-                    <CardTitle className="text-base">Optional restrictions</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="locationRestricted">Limit to a location</Label>
-                            <Switch id="locationRestricted" checked={locationRestricted} onCheckedChange={setLocationRestricted} />
-                        </div>
-                        {locationRestricted && (
-                            <div className="space-y-2">
-                                <p className="text-xs text-muted-foreground">Click the map to set the center, or drag the pin. Use the button for your current location.</p>
-                                <LocationPickerMap
-                                    lat={locationLat}
-                                    lng={locationLng}
-                                    radiusM={Number(locationRadiusM) || 0}
-                                    onChange={(lat, lng) => {
-                                        setLocationLat(lat)
-                                        setLocationLng(lng)
-                                    }}
-                                />
-                                <Button type="button" variant="outline" size="sm" onClick={captureLocation}>
-                                    {locationLat != null ? 'Update my location' : 'Use my current location as center'}
-                                </Button>
-                                {locationLat != null && locationLng != null && (
-                                    <p className="text-xs text-muted-foreground">
-                                        Center: {locationLat.toFixed(5)}, {locationLng.toFixed(5)}
-                                    </p>
-                                )}
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="radius">Radius (meters)</Label>
-                                    <Input id="radius" type="number" min="1" value={locationRadiusM} onChange={(e) => setLocationRadiusM(e.target.value)} />
-                                </div>
-                            </div>
-                        )}
-                    </div>
+            {step === 2 && (
+                <StepDetails
+                    title={title}
+                    setTitle={setTitle}
+                    description={description}
+                    setDescription={setDescription}
+                    coverImageUrl={coverImageUrl}
+                    setCoverImageUrl={setCoverImageUrl}
+                    visibility={visibility}
+                    setVisibility={setVisibility}
+                />
+            )}
 
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <Label htmlFor="ipDedupe">Block repeat claims from the same network</Label>
-                            <p className="text-xs text-muted-foreground">
-                                Rejects a second claim attempt from the same IP address.
-                                {!locationRestricted && ' Recommended if claimers can enter an address without connecting a wallet.'}
-                            </p>
-                        </div>
-                        <Switch id="ipDedupe" checked={ipDedupeEnabled} onCheckedChange={setIpDedupeEnabled} />
-                    </div>
-                </CardContent>
-            </Card>
+            {step === 3 && (
+                <StepRestrictions
+                    locationRestricted={locationRestricted}
+                    setLocationRestricted={setLocationRestricted}
+                    locationLat={locationLat}
+                    locationLng={locationLng}
+                    setLocationLat={setLocationLat}
+                    setLocationLng={setLocationLng}
+                    locationRadiusM={locationRadiusM}
+                    setLocationRadiusM={setLocationRadiusM}
+                    captureLocation={captureLocation}
+                    ipDedupeEnabled={ipDedupeEnabled}
+                    setIpDedupeEnabled={setIpDedupeEnabled}
+                />
+            )}
 
-            <div className="rounded-xl border bg-muted/40 p-4 text-sm text-muted-foreground"><div className="flex items-start gap-2"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0" /><p>Review your token address, total pool, and visibility before creating. Blockchain transactions cannot be undone.</p></div></div>
-            <Button
-                className="w-full"
-                size="lg"
-                disabled={incomplete || createCampaign.isPending}
-                isLoading={createCampaign.isPending}
-                loadingText="Creating airdrop…"
-                onClick={submit}
-            >
-                Create airdrop
-            </Button>
-            <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground"><Check className="h-3.5 w-3.5" /> You can manage or reclaim the campaign later</p>
+            <div className="flex gap-3">
+                {step > 0 && (
+                    <Button type="button" variant="outline" size="lg" className="flex-1" onClick={goBack}>
+                        <ArrowLeft className="h-4 w-4" /> Back
+                    </Button>
+                )}
+                {step < STEPS.length - 1 ? (
+                    <Button type="button" size="lg" className="flex-1" disabled={stepIncomplete[step]} onClick={goNext}>
+                        Next <ArrowRight className="h-4 w-4" />
+                    </Button>
+                ) : (
+                    <Button
+                        className="flex-1"
+                        size="lg"
+                        disabled={incomplete || createCampaign.isPending}
+                        isLoading={createCampaign.isPending}
+                        loadingText="Creating airdrop…"
+                        onClick={submit}
+                    >
+                        Create airdrop
+                    </Button>
+                )}
             </div>
+            <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground"><Check className="h-3.5 w-3.5" /> You can manage or reclaim the campaign later</p>
+            <TxProgressDialog phase={createCampaign.phase} />
         </div>
     )
 }

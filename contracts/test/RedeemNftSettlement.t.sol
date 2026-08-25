@@ -66,6 +66,14 @@ contract RedeemNftSettlementTest is Test {
         view
         returns (RedeemNftSettlement.RedeemOffer memory offer)
     {
+        offer = _offer(op, tier, address(0));
+    }
+
+    function _offer(address op, RedeemNftSettlement.Tier tier, address payoutWallet)
+        internal
+        view
+        returns (RedeemNftSettlement.RedeemOffer memory offer)
+    {
         RedeemNftSettlement.PriceLeg[3] memory legs = [
             RedeemNftSettlement.PriceLeg({token: address(pts), amount: PTS_AMOUNT}),
             RedeemNftSettlement.PriceLeg({token: address(cmm), amount: CMM_AMOUNT}),
@@ -78,6 +86,7 @@ contract RedeemNftSettlementTest is Test {
             nftContract: address(nft),
             tokenId: TOKEN_ID,
             tier: tier,
+            payoutWallet: payoutWallet,
             legs: legs,
             nonce: 1,
             expiry: block.timestamp + 1 days
@@ -124,6 +133,46 @@ contract RedeemNftSettlementTest is Test {
         settlement.redeem(offer, sig);
 
         assertEq(nft.ownerOf(TOKEN_ID), buyer, "nft transferred from treasury to buyer");
+    }
+
+    /// @notice A Registered item with no payoutWallet set falls back to Official's 100%-to-treasury
+    ///         split — same assertions as testRedeemOfficialMintHappyPath, just under Registered tier.
+    function testRedeemRegisteredWithoutPayoutWalletFallsBackToTreasury() public {
+        nft.mint(treasury, TOKEN_ID);
+        vm.prank(treasury);
+        nft.setApprovalForAll(address(settlement), true);
+
+        RedeemNftSettlement.RedeemOffer memory offer = _offer(operator, RedeemNftSettlement.Tier.Registered);
+        bytes memory sig = _sign(operatorPk, offer);
+        settlement.redeem(offer, sig);
+
+        assertEq(cmm.balanceOf(treasury), CMM_AMOUNT, "no payoutWallet - full amount to treasury");
+    }
+
+    function testRedeemRegisteredWithPayoutWalletSplitsPlatformFee() public {
+        address partnerWallet = address(0xBEEF);
+        nft.mint(treasury, TOKEN_ID);
+        vm.prank(treasury);
+        nft.setApprovalForAll(address(settlement), true);
+
+        RedeemNftSettlement.RedeemOffer memory offer =
+            _offer(operator, RedeemNftSettlement.Tier.Registered, partnerWallet);
+        bytes memory sig = _sign(operatorPk, offer);
+        settlement.redeem(offer, sig);
+
+        uint256 expectedFee = (CMM_AMOUNT * settlement.PLATFORM_FEE_BPS()) / 10000;
+        assertEq(nft.ownerOf(TOKEN_ID), buyer, "nft transferred from treasury to buyer");
+        assertEq(cmm.balanceOf(treasury), expectedFee, "10% platform fee to treasury");
+        assertEq(cmm.balanceOf(partnerWallet), CMM_AMOUNT - expectedFee, "90% to the listing's payout wallet");
+        assertEq(pts.balanceOf(partnerWallet), 0, "PTS leg is always burned, never split to payoutWallet");
+    }
+
+    function testRedeemOfficialWithNonZeroPayoutWalletReverts() public {
+        RedeemNftSettlement.RedeemOffer memory offer =
+            _offer(operator, RedeemNftSettlement.Tier.Official, address(0xBEEF));
+        bytes memory sig = _sign(operatorPk, offer);
+        vm.expectRevert("payoutWallet only for Registered");
+        settlement.redeem(offer, sig);
     }
 
     function testRedeemPartnerSignedOfferSucceeds() public {

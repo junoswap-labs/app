@@ -107,7 +107,7 @@ contract AirdropEscrow is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     event AirdropClaimed(
         bytes32 indexed campaignId, address indexed recipient, uint256 amount, address submitter, bool closesCampaign
     );
-    event CampaignClosed(bytes32 indexed campaignId, uint8 reason); // 0 = exhausted, 1 = maxClaimantsReached
+    event CampaignClosed(bytes32 indexed campaignId, uint8 reason); // 0 = exhausted, 1 = maxClaimantsReached, 2 = endedByCreator
     event CampaignReclaimed(bytes32 indexed campaignId, address indexed to, uint256 amount);
     event GasReimbursed(bytes32 indexed campaignId, address indexed relayer, uint256 amount);
     event GasReclaimed(bytes32 indexed campaignId, address indexed to, uint256 amount);
@@ -376,9 +376,15 @@ contract AirdropEscrow is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         Campaign storage c = campaigns_[campaignId];
         require(c.creator != address(0), "campaign not found");
         require(msg.sender == c.creator || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "not creator or admin");
-        require(c.expiresAt != 0, "campaign has no expiry");
-        require(block.timestamp > c.expiresAt, "not expired yet");
         require(c.status != CampaignStatus.Reclaimed, "already reclaimed");
+        // Closed counts as reclaimable on its own: a campaign that ended by cap/exhaustion, or one
+        // the creator ended via endCampaign(), takes no further claims, so waiting on expiresAt
+        // would only strand the remainder — and a campaign created without an expiry (expiresAt ==
+        // 0) had no path back at all before this.
+        require(
+            c.status == CampaignStatus.Closed || (c.expiresAt != 0 && block.timestamp > c.expiresAt),
+            "campaign still active"
+        );
         require(c.remainingAmount > 0, "nothing to reclaim");
 
         uint256 amount = c.remainingAmount;
@@ -388,6 +394,22 @@ contract AirdropEscrow is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         IERC20(c.token).safeTransfer(c.creator, amount);
 
         emit CampaignReclaimed(campaignId, c.creator, amount);
+    }
+
+    /// @notice Creator (or admin) ends a live campaign early — no further claims are accepted from
+    ///         this point, and the unclaimed pool becomes reclaimable immediately via reclaim()
+    ///         (plus reclaimGas() for a relayer-mode deposit). This is the only way to stop a
+    ///         campaign that was created without an expiry.
+    /// @dev    Deliberately cannot un-close: reopening would let a creator revoke and restore a
+    ///         claim window at will, which claimants can't plan around.
+    function endCampaign(bytes32 campaignId) external {
+        Campaign storage c = campaigns_[campaignId];
+        require(c.creator != address(0), "campaign not found");
+        require(msg.sender == c.creator || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "not creator or admin");
+        require(c.status == CampaignStatus.Active, "campaign not active");
+
+        c.status = CampaignStatus.Closed;
+        emit CampaignClosed(campaignId, 2);
     }
 
     /// @notice Creator (or admin) manually sweeps back whatever's left of a relayer-mode

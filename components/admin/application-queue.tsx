@@ -11,8 +11,7 @@ import { permissionRegistryAbi } from '@/lib/abis/permission-registry'
 import { useAdminApplications, useReviewApplication } from '@/hooks/useApplications'
 import { toastSuccess, toastError } from '@/lib/toast'
 import type { Application, ApplicationKind } from '@/types/applications'
-
-const REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS as Address | undefined
+import { useContractAddresses } from '@/hooks/useContractAddresses'
 
 const ROLE_FN = {
     authorize_rwa: 'AUTHORIZE_ROLE',
@@ -38,6 +37,7 @@ interface ApplicationQueueProps {
  * never happens if the on-chain tx fails.
  */
 export function ApplicationQueue({ kind, title, emptyDescription, renderPayload }: ApplicationQueueProps) {
+    const { permissionRegistry: REGISTRY_ADDRESS } = useContractAddresses()
     const { address: reviewer } = useAccount()
     const publicClient = usePublicClient()
     const { data: applications } = useAdminApplications(kind)

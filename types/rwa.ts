@@ -38,6 +38,10 @@ export interface RwaListing {
 export const SHIP_DEADLINE_MS = 7 * 24 * 60 * 60 * 1000
 export const DISPUTE_GRACE_MS = 3 * 24 * 60 * 60 * 1000
 export const AUTO_RELEASE_DEADLINE_MS = 10 * 24 * 60 * 60 * 1000
+/** One-time buyer-triggered grace period on top of AUTO_RELEASE_DEADLINE_MS — see
+ *  RwaEscrow.sol's extendAutoRelease(). UX default only; the deployed contract's own
+ *  EXTENSION_PERIOD (read via lib/abis/rwa-escrow.ts's rwaEscrowDeadlinesAbi) is authoritative. */
+export const EXTENSION_PERIOD_MS = 7 * 24 * 60 * 60 * 1000
 
 export type RwaAction =
     | 'fund'

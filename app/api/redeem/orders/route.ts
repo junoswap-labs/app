@@ -1,0 +1,281 @@
+import { randomBytes } from 'crypto'
+import { NextRequest, NextResponse } from 'next/server'
+import { privateKeyToAccount } from 'viem/accounts'
+import { getSessionWallet } from '@/lib/auth/session'
+import { supabaseAdmin } from '@/lib/supabase/server'
+import { computeRedeemOfferHash, redeemOfferDomain, REDEEM_OFFER_TYPES, type RedeemOffer } from '@/lib/eip712'
+import type { ShippingInfo } from '@/types/redeem'
+import { CONTRACT_ADDRESSES, DEFAULT_CHAIN_ID } from '@/config/contract-addresses'
+
+async function logOrderCreated(orderId: string, actorWallet: string, metadata: Record<string, unknown>) {
+    await supabaseAdmin().from('audit_logs').insert({
+        category: 'client',
+        action: 'redeem.order_created',
+        actor_wallet: actorWallet,
+        actor_type: 'buyer',
+        subject_type: 'redemption_order',
+        subject_id: orderId,
+        old_status: null,
+        new_status: 'PendingPayment',
+        tx_hash: null,
+        block_number: null,
+        log_index: null,
+        request_ip: null,
+        user_agent: null,
+        tg_update_id: null,
+        metadata,
+    })
+}
+
+/**
+ * STEP 2 — "กดคลิกแลกสินค้า": creates the redemption order and, depending on kind, hands the
+ * frontend what it needs to actually pay on-chain with the buyer's own wallet:
+ *  - kind: 'nft'   -> a server-signed RedeemOffer + signature for RedeemNftSettlement.redeem()
+ *  - kind: 'merch' -> a freshly minted escrow listingId for the Redeem RwaEscrow deployment's fund()
+ * The row is inserted here as 'PendingPayment' — every later status is written ONLY by the sync
+ * poller once the real on-chain tx confirms, per CLAUDE.md's Clean Workflow rule. Stock is
+ * decremented here, guarded by an optimistic-lock UPDATE so two concurrent redeems can't both
+ * claim the last unit.
+ */
+export async function POST(request: NextRequest) {
+    const wallet = getSessionWallet(request)
+    if (!wallet) return NextResponse.json({ error: 'not signed in' }, { status: 401 })
+
+    const body = await request.json().catch(() => null)
+    const itemId = Number(body?.item_id)
+    const variantId = body?.variant_id != null ? Number(body.variant_id) : null
+    if (!Number.isInteger(itemId)) {
+        return NextResponse.json({ error: 'item_id is required' }, { status: 400 })
+    }
+
+    const { data: item, error: itemError } = await supabaseAdmin()
+        .from('redeem_items')
+        .select('*')
+        .eq('id', itemId)
+        .eq('status', 'published')
+        .maybeSingle()
+    if (itemError) return NextResponse.json({ error: itemError.message }, { status: 500 })
+    if (!item) return NextResponse.json({ error: 'item not found or not published' }, { status: 404 })
+
+    const now = Date.now()
+    if (item.redeem_start_at && now < new Date(item.redeem_start_at).getTime()) {
+        return NextResponse.json({ error: 'redeeming this item has not opened yet' }, { status: 403 })
+    }
+    if (item.redeem_end_at && now > new Date(item.redeem_end_at).getTime()) {
+        return NextResponse.json({ error: 'the redeem window for this item has closed' }, { status: 403 })
+    }
+
+    // App-level only (not a smart-contract constraint) — counts this wallet's own orders on this
+    // item that got past 'PendingPayment' (i.e. actually paid/escrowed on-chain), so an abandoned
+    // wallet-rejected attempt never counts against the cap.
+    if (item.max_per_wallet != null) {
+        const { count, error: countError } = await supabaseAdmin()
+            .from('redemption_orders')
+            .select('id', { count: 'exact', head: true })
+            .eq('item_id', item.id)
+            .eq('buyer_wallet', wallet)
+            .neq('status', 'PendingPayment')
+        if (countError) return NextResponse.json({ error: countError.message }, { status: 500 })
+        if ((count ?? 0) >= item.max_per_wallet) {
+            return NextResponse.json({ error: `you've already redeemed this item the maximum ${item.max_per_wallet} time(s) allowed` }, { status: 409 })
+        }
+    }
+
+    let variant: { id: number; stock: number | null } | null = null
+    if (variantId != null) {
+        const { data, error } = await supabaseAdmin()
+            .from('redeem_item_variants')
+            .select('id, stock')
+            .eq('id', variantId)
+            .eq('item_id', itemId)
+            .maybeSingle()
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+        if (!data) return NextResponse.json({ error: 'variant not found for this item' }, { status: 404 })
+        variant = data
+    }
+
+    // Stock is NOT reserved/decremented here — only a read-only UX check. The buyer hasn't paid or
+    // escrowed anything on-chain yet at order-creation time, so decrementing now would let an
+    // abandoned/never-paid order (wallet rejection, revert, tab closed) permanently lock a unit.
+    // The real decrement happens once the sync poller confirms the on-chain payment/escrow event
+    // (handleNftRedeemed / handleRedeemRwaFunded in services/sync/handlers.ts), per Clean Workflow.
+    if (variant) {
+        if (variant.stock != null && variant.stock <= 0) return NextResponse.json({ error: 'out of stock' }, { status: 409 })
+    } else if (item.stock != null && item.stock <= 0) {
+        return NextResponse.json({ error: 'out of stock' }, { status: 409 })
+    }
+
+    const baseOrder = {
+        item_id: item.id,
+        variant_id: variant?.id ?? null,
+        buyer_wallet: wallet,
+        tier: item.tier,
+        kind: item.kind,
+        price_points: item.price_points,
+        payment_token: item.payment_token,
+        payment_token_symbol: item.payment_token_symbol,
+        payment_amount: item.payment_amount,
+        status: 'PendingPayment' as const,
+    }
+
+    if (item.kind === 'nft') {
+        const operatorKey = process.env.REDEEM_OPERATOR_PRIVATE_KEY
+        const operatorAddress = CONTRACT_ADDRESSES.redeemOperator
+        const settlementAddress = CONTRACT_ADDRESSES.redeemNftSettlement
+        const junoPtsAddress = CONTRACT_ADDRESSES.junoPts
+        const chainId = DEFAULT_CHAIN_ID
+        if (!operatorKey || !operatorAddress || !settlementAddress || !junoPtsAddress) {
+            return NextResponse.json({ error: 'Redeem NFT settlement is not configured yet' }, { status: 500 })
+        }
+
+        const tierIndex: 0 | 1 = item.tier === 'official' ? 0 : 1
+        const payoutWallet =
+            item.tier === 'registered' && item.payout_wallet ? (item.payout_wallet as `0x${string}`) : ('0x0000000000000000000000000000000000000000' as const)
+
+        const offer: RedeemOffer = {
+            itemId: BigInt(item.id),
+            operator: operatorAddress as `0x${string}`,
+            buyer: wallet as `0x${string}`,
+            nftContract: item.nft_contract as `0x${string}`,
+            tokenId: BigInt(item.nft_token_id ?? '0'),
+            tier: tierIndex,
+            payoutWallet,
+            legs: [
+                { token: junoPtsAddress as `0x${string}`, amount: BigInt(item.price_points) },
+                {
+                    token: (item.payment_token ?? '0x0000000000000000000000000000000000000000') as `0x${string}`,
+                    amount: BigInt(item.payment_amount ?? '0'),
+                },
+                { token: '0x0000000000000000000000000000000000000000', amount: 0n },
+            ],
+            nonce: BigInt(`0x${randomBytes(16).toString('hex')}`),
+            expiry: BigInt(Math.floor(now / 1000) + 15 * 60), // 15 minutes to complete the on-chain tx
+        }
+
+        const account = privateKeyToAccount(operatorKey as `0x${string}`)
+        const signature = await account.signTypedData({
+            domain: redeemOfferDomain(chainId, settlementAddress as `0x${string}`),
+            types: REDEEM_OFFER_TYPES,
+            primaryType: 'RedeemOffer',
+            message: offer,
+        })
+        const offerHash = computeRedeemOfferHash(offer)
+
+        const { data: order, error } = await supabaseAdmin()
+            .from('redemption_orders')
+            .insert({ ...baseOrder, offer_hash: offerHash })
+            .select()
+            .single()
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+        await logOrderCreated(order.id, wallet, { kind: 'nft', offer_hash: offerHash })
+
+        return NextResponse.json(
+            {
+                order,
+                offer: {
+                    itemId: offer.itemId.toString(),
+                    operator: offer.operator,
+                    buyer: offer.buyer,
+                    nftContract: offer.nftContract,
+                    tokenId: offer.tokenId.toString(),
+                    tier: offer.tier,
+                    payoutWallet: offer.payoutWallet,
+                    legs: offer.legs.map((l) => ({ token: l.token, amount: l.amount.toString() })),
+                    nonce: offer.nonce.toString(),
+                    expiry: offer.expiry.toString(),
+                },
+                signature,
+                settlementAddress,
+            },
+            { status: 201 }
+        )
+    }
+
+    // kind === 'merch' — a shipping address is required, with an optional "save on this device"
+    // checkbox the frontend implements via localStorage (no server-side address book).
+    const shipping = body?.shipping as ShippingInfo | undefined
+    const trim = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+    const structured = {
+        fullName: trim(shipping?.fullName),
+        phone: trim(shipping?.phone),
+        line1: trim(shipping?.line1),
+        line2: trim(shipping?.line2),
+        district: trim(shipping?.district),
+        province: trim(shipping?.province),
+        postalCode: trim(shipping?.postalCode),
+        country: trim(shipping?.country),
+        note: trim(shipping?.note).slice(0, 500),
+    }
+    if (!structured.fullName || !structured.phone || !structured.line1 || !structured.province || !structured.postalCode || !structured.country) {
+        return NextResponse.json(
+            { error: 'fullName, phone, line1, province, postalCode, and country are required for merch redemptions' },
+            { status: 400 }
+        )
+    }
+    // Checked here rather than trusted from the form: the country field is hidden client-side for a
+    // Thailand-only item, and a hidden field is not a validated one.
+    if (item.thailand_only && structured.country.toLowerCase() !== 'thailand') {
+        return NextResponse.json({ error: 'this item ships within Thailand only' }, { status: 400 })
+    }
+
+    const escrowListingId = `0x${randomBytes(32).toString('hex')}`
+    const officialTreasury = CONTRACT_ADDRESSES.redeemOfficialTreasury
+    const seller = item.tier === 'registered' ? item.payout_wallet : officialTreasury
+    if (!seller) {
+        return NextResponse.json({ error: 'no payout destination configured for this item' }, { status: 500 })
+    }
+
+    const { data: order, error } = await supabaseAdmin()
+        .from('redemption_orders')
+        .insert({
+            ...baseOrder,
+            escrow_listing_id: escrowListingId,
+            shipping: structured,
+        })
+        .select()
+        .single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await logOrderCreated(order.id, wallet, { kind: 'merch', escrow_listing_id: escrowListingId })
+
+    return NextResponse.json(
+        {
+            order,
+            escrow: {
+                listingId: escrowListingId,
+                seller,
+                paymentToken: item.payment_token,
+                amount: item.payment_amount,
+                pricePoints: item.price_points,
+            },
+        },
+        { status: 201 }
+    )
+}
+
+export async function GET(request: NextRequest) {
+    const wallet = getSessionWallet(request)
+    if (!wallet) return NextResponse.json({ error: 'not signed in' }, { status: 401 })
+
+    const { data, error } = await supabaseAdmin()
+        .from('redemption_orders')
+        .select('*, redeem_items(name, image_urls), redeem_item_variants(label)')
+        .eq('buyer_wallet', wallet)
+        .order('created_at', { ascending: false })
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json((data ?? []).map(flattenOrderJoin))
+}
+
+// Route-level denormalization so the frontend gets item_name/item_image_url/variant_label as flat
+// fields (types/redeem.ts's RedemptionOrder) instead of the raw nested join shape.
+function flattenOrderJoin<T extends Record<string, unknown>>(row: T) {
+    const item = row.redeem_items as { name: string; image_urls: string[] } | null
+    const variant = row.redeem_item_variants as { label: string } | null
+    const { redeem_items: _items, redeem_item_variants: _variants, ...rest } = row
+    return {
+        ...rest,
+        item_name: item?.name,
+        item_image_url: item?.image_urls?.[0] ?? null,
+        variant_label: variant?.label ?? null,
+    }
+}

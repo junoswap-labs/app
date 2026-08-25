@@ -1,9 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSessionWallet } from '@/lib/auth/session'
 import { supabaseAdmin } from '@/lib/supabase/server'
+import { serverPublicClient } from '@/lib/onchain/public-client'
+import { isAdminOnChain } from '@/lib/onchain/roles'
+import { isAppHostedImageUrl } from '@/lib/image'
+import { campaignShareHash } from '@/lib/onchain/airdrop-share'
+import { airdropEscrowAbi } from '@/lib/abis/airdrop'
 import type { Database } from '@/types/supabase'
+import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
 
 type CampaignUpdate = Database['public']['Tables']['airdrop_campaigns']['Update']
+
+const CAMPAIGN_STATUS = ['active', 'closed', 'reclaimed'] as const
+
+/**
+ * The creator's title/description/cover image must not depend on the sync poller having caught up
+ * — that's what used to make a fresh campaign's metadata unsaveable (409) while the poller ground
+ * through its block backlog. So when the row isn't indexed yet, seed it here from getCampaign()
+ * instead: every on-chain-authoritative column comes from the contract read, never from the
+ * request body, so this doesn't become a client-writable status path. The poller's own upsert is
+ * `ignoreDuplicates`, so it won't clobber the row afterwards — it only backfills tx_hash.
+ */
+async function seedFromChain(id: string, wallet: string) {
+    const escrow = CONTRACT_ADDRESSES.airdropEscrow
+    if (!escrow) return { error: 'AirdropEscrow is not deployed yet', status: 500 as const }
+
+    const campaign = await serverPublicClient().readContract({
+        address: escrow,
+        abi: airdropEscrowAbi,
+        functionName: 'getCampaign',
+        args: [id as `0x${string}`],
+    })
+
+    // A campaign that doesn't exist on-chain reads back as the zero struct.
+    if (campaign.creator === '0x0000000000000000000000000000000000000000') {
+        return { error: 'campaign not found on-chain yet — retry shortly', status: 409 as const }
+    }
+    if (campaign.creator.toLowerCase() !== wallet.toLowerCase()) {
+        return { error: "not this campaign's creator", status: 403 as const }
+    }
+
+    const { error } = await supabaseAdmin()
+        .from('airdrop_campaigns')
+        .upsert(
+            {
+                id,
+                creator_wallet: campaign.creator.toLowerCase(),
+                token: campaign.token,
+                amount_mode: campaign.amountMode === 0 ? 'fixed' : 'random',
+                fixed_amount: campaign.fixedAmount > 0n ? campaign.fixedAmount.toString() : null,
+                min_amount: campaign.minAmount > 0n ? campaign.minAmount.toString() : null,
+                max_amount: campaign.maxAmount > 0n ? campaign.maxAmount.toString() : null,
+                total_amount: campaign.totalAmount.toString(),
+                remaining_amount: campaign.remainingAmount.toString(),
+                max_claimants: campaign.maxClaimants,
+                claimed_count: campaign.claimedCount,
+                expires_at: campaign.expiresAt > 0n ? new Date(Number(campaign.expiresAt) * 1000).toISOString() : null,
+                gas_mode: campaign.gasMode === 0 ? 'self' : 'relayer',
+                gas_deposit: campaign.gasDeposit.toString(),
+                share_hash: campaignShareHash(id as `0x${string}`),
+                status: CAMPAIGN_STATUS[campaign.status] ?? 'active',
+            },
+            { onConflict: 'id', ignoreDuplicates: true }
+        )
+    if (error) return { error: error.message, status: 500 as const }
+    return null
+}
 
 /**
  * Attaches the off-chain-only fields (title/description/cover image/GPS geofence/IP-dedupe
@@ -23,21 +85,44 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const { data: existing, error: fetchError } = await supabaseAdmin()
         .from('airdrop_campaigns')
-        .select('creator_wallet')
+        .select('creator_wallet, title, description, cover_image_url, visibility')
         .eq('id', id)
         .maybeSingle()
     if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
+
+    // Admins can overwrite any campaign's off-chain fields — this is the moderation path for a
+    // campaign whose title/description/cover image turns out to be gambling, adult, or scam
+    // content. It never touches an on-chain column, so a takedown can't move anyone's tokens.
+    const isAdmin = await isAdminOnChain(wallet as `0x${string}`)
+
     if (!existing) {
-        return NextResponse.json({ error: 'campaign not indexed yet — retry shortly' }, { status: 409 })
-    }
-    if (existing.creator_wallet.toLowerCase() !== wallet.toLowerCase()) {
+        const failure = await seedFromChain(id, wallet)
+        if (failure) return NextResponse.json({ error: failure.error }, { status: failure.status })
+    } else if (!isAdmin && existing.creator_wallet.toLowerCase() !== wallet.toLowerCase()) {
         return NextResponse.json({ error: "not this campaign's creator" }, { status: 403 })
     }
+
+    const previousValues = existing
+        ? {
+              title: existing.title,
+              description: existing.description,
+              cover_image_url: existing.cover_image_url,
+              visibility: existing.visibility,
+          }
+        : null
 
     const update: CampaignUpdate = {}
     if (typeof body.title === 'string') update.title = body.title.trim().slice(0, 200) || null
     if (typeof body.description === 'string') update.description = body.description.trim().slice(0, 2000) || null
-    if (typeof body.cover_image_url === 'string' || body.cover_image_url === null) {
+    if (body.cover_image_url === null) {
+        update.cover_image_url = null
+    } else if (typeof body.cover_image_url === 'string' && body.cover_image_url !== '') {
+        if (!isAppHostedImageUrl(body.cover_image_url)) {
+            return NextResponse.json(
+                { error: 'cover image must be uploaded through this app — external image URLs are not accepted' },
+                { status: 400 }
+            )
+        }
         update.cover_image_url = body.cover_image_url
     }
     if (body.visibility === 'public' || body.visibility === 'unlisted') update.visibility = body.visibility
@@ -75,5 +160,29 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         .select()
         .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const editedSomeoneElses = isAdmin && existing != null && existing.creator_wallet.toLowerCase() !== wallet.toLowerCase()
+    await supabaseAdmin()
+        .from('audit_logs')
+        .insert({
+            category: editedSomeoneElses ? 'admin' : 'client',
+            action: editedSomeoneElses ? 'airdrop.moderated' : 'airdrop.metadata_updated',
+            actor_wallet: wallet,
+            actor_type: editedSomeoneElses ? 'admin' : 'user',
+            subject_type: 'airdrop_campaign',
+            subject_id: id,
+            old_status: null,
+            new_status: null,
+            tx_hash: null,
+            block_number: null,
+            log_index: null,
+            tg_update_id: null,
+            request_ip: request.headers.get('x-forwarded-for'),
+            user_agent: request.headers.get('user-agent'),
+            // The previous values, so a moderation takedown is reversible and reviewable — the row
+            // itself only keeps what it was replaced with.
+            metadata: { changed: Object.keys(update), previous: previousValues },
+        })
+
     return NextResponse.json(data)
 }
