@@ -27,7 +27,7 @@ export function useSiweSignIn() {
             const siwe = new SiweMessage({
                 domain: window.location.host,
                 address,
-                statement: 'Sign in to Junoswap App.',
+                statement: 'Sign in to Junoswap Reward.',
                 uri: window.location.origin,
                 version: '1',
                 chainId,

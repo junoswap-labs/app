@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useChainId } from 'wagmi'
 import { Menu } from 'lucide-react'
@@ -64,14 +63,27 @@ export function Header() {
         <header className="sticky top-0 z-40 border-b border-border/50 bg-background/80 backdrop-blur-md">
             <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
                 <Link
-                    href="/app/redeem"
+                    href="/app/airdrop"
                     className="flex items-center gap-1.5 font-semibold tracking-tight"
                 >
-                    <Image src="/logo.svg" alt="" width={24} height={24} priority />
+                    <span
+                        aria-hidden
+                        className="block h-6 w-6 bg-gradient-to-br from-primary to-[#FF914D]"
+                        style={{
+                            WebkitMaskImage: 'url(/logo.svg)',
+                            maskImage: 'url(/logo.svg)',
+                            WebkitMaskSize: 'contain',
+                            maskSize: 'contain',
+                            WebkitMaskRepeat: 'no-repeat',
+                            maskRepeat: 'no-repeat',
+                            WebkitMaskPosition: 'center',
+                            maskPosition: 'center',
+                        }}
+                    />
                     <span className="bg-gradient-to-r from-primary to-[#FF914D] bg-clip-text text-transparent">
                         Junoswap
                     </span>
-                    <span className="text-muted-foreground">App</span>
+                    <span className="text-muted-foreground">Reward</span>
                 </Link>
 
                 <nav className="hidden items-center gap-1 sm:flex">
