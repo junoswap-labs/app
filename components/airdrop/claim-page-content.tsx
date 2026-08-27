@@ -21,7 +21,7 @@ import Link from 'next/link'
 import { useAirdropCampaign, useAirdropClaims } from '@/hooks/useAirdropCampaigns'
 import { useClaimAirdrop } from '@/hooks/useAirdropActions'
 import { campaignShareHash } from '@/lib/onchain/airdrop-share'
-import { findPaymentToken } from '@/lib/tokens'
+import { findKnownToken } from '@/lib/tokens'
 import { getExplorerTokenUrl } from '@/lib/explorer'
 import { toastError } from '@/lib/toast'
 
@@ -140,7 +140,7 @@ export function AirdropClaimPageContent({ campaignId }: { campaignId: string }) 
                     {/* Anyone can run a campaign with any ERC20 — a claimant has no way to tell a
                         real token from a lookalike by name alone, so say so out loud unless the
                         address is one of the tokens we actually verified (lib/tokens.ts). */}
-                    {!findPaymentToken(chainId, campaign.token) && (
+                    {!findKnownToken(chainId, campaign.token) && (
                         <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs sm:text-sm">
                             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                             <p className="text-muted-foreground">
