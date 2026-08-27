@@ -6,7 +6,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
 import { wagmiConfig } from '@/lib/wagmi'
 import { Toaster } from '@/components/ui/sonner'
-import { SiweAutoSignIn } from '@/components/auth/siwe-auto-sign-in'
 
 export function Providers({ children }: { children: React.ReactNode }) {
     // Defaults, not per-hook settings: without a staleTime every query refetches on each mount, so
@@ -36,7 +35,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
                     disableTransitionOnChange
                 >
                     {children}
-                    <SiweAutoSignIn />
                     <Toaster />
                 </ThemeProvider>
             </QueryClientProvider>

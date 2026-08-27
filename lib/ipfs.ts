@@ -1,4 +1,6 @@
-export const DEFAULT_IPFS_GATEWAY = 'https://ipfs.io/ipfs/'
+// Pinata's own gateway serves anything we've pinned immediately; ipfs.io 403s on fresh CIDs
+// that haven't propagated to it yet (and rate-limits hard behind Cloudflare).
+export const DEFAULT_IPFS_GATEWAY = 'https://gateway.pinata.cloud/ipfs/'
 
 /**
  * Resolve an NFT URI into a fetchable/displayable URL.

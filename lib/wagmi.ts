@@ -1,5 +1,6 @@
 import { http, createConfig } from 'wagmi'
 import { cookieStorage, createStorage } from 'wagmi'
+import { walletConnect } from 'wagmi/connectors'
 import { bitkub } from 'wagmi/chains'
 import type { Address } from 'viem'
 
@@ -27,6 +28,19 @@ const rpcUrls = {
 
 export const wagmiConfig = createConfig({
     chains: supportedChains,
+    // walletConnect's setup() eagerly boots @walletconnect/core, which touches indexedDB.
+    // createConfig runs connector.setup() synchronously, and this module is imported by a
+    // client component Next still renders on the server — so only hand it the connector in
+    // the browser. The connect modal is client-only, so the server never needs it.
+    connectors:
+        typeof window === 'undefined'
+            ? []
+            : [
+                  walletConnect({
+                      projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '',
+                      showQrModal: true,
+                  }),
+              ],
     transports: {
         // batch: coalesce nearby eth_calls into one JSON-RPC batch (fewer round-trips)
         [bitkub.id]: http(rpcUrls[bitkub.id], { batch: true }),

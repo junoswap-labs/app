@@ -9,7 +9,13 @@ import type { ConnectModalProps } from '@/types/web3'
 
 const WALLET_NAMES: Record<string, string> = {
     injected: 'Browser Wallet',
-    walletConnect: 'WalletConnect',
+    walletConnect: 'Wallet Connect',
+    coinbaseWallet: 'Coinbase Wallet',
+}
+
+const WALLET_DESCRIPTIONS: Record<string, string> = {
+    injected: 'Browser wallet',
+    walletConnect: 'Scan with mobile wallet',
     coinbaseWallet: 'Coinbase Wallet',
 }
 
@@ -65,9 +71,7 @@ export function ConnectModal({ open, onOpenChange }: ConnectModalProps) {
                                     {WALLET_NAMES[connector.id] || connector.name}
                                 </span>
                                 <span className="text-xs text-muted-foreground">
-                                    {connector.type === 'injected'
-                                        ? 'Browser wallet'
-                                        : connector.type}
+                                    {WALLET_DESCRIPTIONS[connector.type] || connector.type}
                                 </span>
                             </div>
                         </Button>

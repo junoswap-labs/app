@@ -31,7 +31,11 @@ const ADDRESSES_BY_CHAIN: Record<number, ContractAddressBag> = {
         redeemOfficialTreasury: '0xCA811301C650C92fD45ed32A81C0B757C61595b6',
     },
     // kub-mainnet (96) — fill in as contracts are deployed there
-    96: {},
+    96: {
+        permissionRegistry: '0x2fB4D4E75A756FECBC32c356EA9139b1FbC35D15',
+        junoPts: '0xD7d24786E8009259811683E37761e886d9E28894',
+        airdropEscrow: '0x8dAbACD4Da790A5b22F51Bd3433123B6578B68eB',
+    },
 }
 
 export const DEFAULT_CHAIN_ID = 25925
