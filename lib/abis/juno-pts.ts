@@ -40,6 +40,46 @@ export const junoPtsAbi = [
         inputs: [{ name: 'amount', type: 'uint256' }],
         outputs: [],
     },
+    // Admin panel only (components/admin/junopts-mint.tsx): mint() is onlyRole(MINTER_ROLE), and
+    // MINTER_ROLE is granted by the DEFAULT_ADMIN_ROLE holder — the deployer/ADMIN does NOT hold it
+    // by default (JunoPts.sol's constructor only self-grants admin + committee).
+    {
+        type: 'function',
+        name: 'MINTER_ROLE',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ type: 'bytes32' }],
+    },
+    {
+        type: 'function',
+        name: 'hasRole',
+        stateMutability: 'view',
+        inputs: [
+            { name: 'role', type: 'bytes32' },
+            { name: 'account', type: 'address' },
+        ],
+        outputs: [{ type: 'bool' }],
+    },
+    {
+        type: 'function',
+        name: 'grantRole',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'role', type: 'bytes32' },
+            { name: 'account', type: 'address' },
+        ],
+        outputs: [],
+    },
+    {
+        type: 'function',
+        name: 'mint',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'to', type: 'address' },
+            { name: 'amount', type: 'uint256' },
+        ],
+        outputs: [],
+    },
     {
         type: 'event',
         name: 'Transfer',

@@ -5,6 +5,7 @@ import { AnalyticsDashboard } from '@/components/admin/analytics-dashboard'
 import { DisputeQueueTable } from '@/components/admin/dispute-queue-table'
 import { AirdropModeration } from '@/components/admin/airdrop-moderation'
 import { AdminRoles } from '@/components/admin/admin-roles'
+import { JunoPtsMint } from '@/components/admin/junopts-mint'
 import { ReportQueue } from '@/components/admin/report-queue'
 import { SystemPanel } from '@/components/admin/system-panel'
 import { RedemptionQueue } from '@/components/admin/redemption-queue'
@@ -46,6 +47,7 @@ const GROUPS: AdminGroup[] = [
         label: 'Configuration',
         sections: [
             { key: 'roles', label: 'Roles & permissions' },
+            { key: 'junopts', label: 'JunoPts mint' },
             { key: 'addresses', label: 'Contract addresses' },
             { key: 'settings', label: 'Contract settings' },
         ],
@@ -134,6 +136,8 @@ function AdminSection({ section }: { section: string }) {
             )
         case 'roles':
             return <AdminRoles />
+        case 'junopts':
+            return <JunoPtsMint />
         case 'addresses':
             return <ContractDirectory />
         case 'settings':
