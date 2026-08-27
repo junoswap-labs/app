@@ -130,7 +130,9 @@ export function LocationPickerMap({
     return (
         <div className="space-y-2">
             <LocationSearchBox onSelect={(lat, lng) => onChange(lat, lng)} />
-            <div className="h-64 w-full overflow-hidden rounded-md border">
+            {/* `isolate` traps Leaflet's internal z-index (panes 400, controls 800+) inside this
+                stacking context so they can't paint over a z-50 modal opened above the map. */}
+            <div className="isolate h-64 w-full overflow-hidden rounded-md border">
                 <MapContainer center={center} zoom={lat != null ? 15 : 6} scrollWheelZoom className="h-full w-full">
                     <TileLayer
                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
