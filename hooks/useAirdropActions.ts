@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAccount, useWriteContract, usePublicClient } from 'wagmi'
+import { useAccount, useChainId, useWriteContract, usePublicClient } from 'wagmi'
 import type { Address } from 'viem'
 import { airdropEscrowAbi } from '@/lib/abis/airdrop'
 import { ensureTokenAllowance } from '@/lib/onchain/erc20'
@@ -72,6 +72,7 @@ const METADATA_RETRY_DELAY_MS = 2_500
 export function useCreateAirdropCampaign() {
     const { AIRDROP_ESCROW_ADDRESS } = useAirdropEscrowAddress()
     const { address } = useAccount()
+    const chainId = useChainId()
     const { writeContractAsync } = useWriteContract()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
@@ -154,7 +155,7 @@ export function useCreateAirdropCampaign() {
                 const res = await fetch(`/api/airdrop/campaigns/${campaignId}/metadata`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(metadata),
+                    body: JSON.stringify({ ...metadata, chainId }),
                 })
                 if (res.ok) break
                 const body = await res.json().catch(() => null)
@@ -189,6 +190,7 @@ export interface ClaimAirdropInput {
  */
 export function useClaimAirdrop() {
     const { AIRDROP_ESCROW_ADDRESS } = useAirdropEscrowAddress()
+    const chainId = useChainId()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
     const syncRefresh = useSyncRefresh()
@@ -201,7 +203,7 @@ export function useClaimAirdrop() {
             const res = await fetch('/api/airdrop/claim', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ campaignId: input.campaignId, recipient: input.recipient, gps: input.gps }),
+                body: JSON.stringify({ campaignId: input.campaignId, recipient: input.recipient, gps: input.gps, chainId }),
             })
             const gate = await res.json().catch(() => null)
             if (!res.ok) throw new Error(gate?.error ?? `claim failed: ${res.status}`)

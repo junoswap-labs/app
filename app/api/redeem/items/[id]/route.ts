@@ -13,7 +13,7 @@ type RedeemItemUpdate = Database['public']['Tables']['redeem_items']['Update']
 // nft_token_id stay fixed after creation, same as the create route's own invariants.
 
 async function loadOwnedItem(id: number, wallet: string) {
-    const { data, error } = await supabaseAdmin().from('redeem_items').select('lister_wallet').eq('id', id).maybeSingle()
+    const { data, error } = await supabaseAdmin().from('redeem_items').select('lister_wallet, chain_id').eq('id', id).maybeSingle()
     if (error) throw error
     if (!data) return { item: null, owned: false }
     const owned = data.lister_wallet === wallet || (await isAdminOnChain(wallet as `0x${string}`))
@@ -49,6 +49,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const body = await request.json().catch(() => null)
     const update: RedeemItemUpdate = {}
+    const itemChainId = item.chain_id
 
     if (typeof body?.name === 'string') {
         const name = body.name.trim()
@@ -131,7 +132,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
                 if (error) return NextResponse.json({ error: error.message }, { status: 500 })
                 keepIds.add(v.id)
             } else {
-                const { error } = await supabaseAdmin().from('redeem_item_variants').insert({ item_id: id, label, sku, stock: vStock })
+                const { error } = await supabaseAdmin().from('redeem_item_variants').insert({ item_id: id, chain_id: itemChainId, label, sku, stock: vStock })
                 if (error) return NextResponse.json({ error: error.message }, { status: 500 })
             }
         }

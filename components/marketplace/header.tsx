@@ -4,7 +4,9 @@ import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
+import { useChainId } from 'wagmi'
 import { Menu } from 'lucide-react'
+import { bitkub } from '@/lib/wagmi'
 import { ConnectButton } from '@/components/web3/connect-button'
 import { NetworkSwitcher } from '@/components/web3/network-switcher'
 import { NotificationBell } from '@/components/marketplace/notification-bell'
@@ -19,9 +21,11 @@ import { cn } from '@/lib/utils'
 // nav entry — see app/app/redeem/page.tsx. Settings and Admin aren't here either: both hang off
 // the wallet dropdown (components/web3/account-dropdown.tsx), Admin only for wallets holding the
 // on-chain role.
+// Redeem isn't live on KUB mainnet yet — hide its nav entry there (route still URL-reachable,
+// same as the other temporarily-hidden features above). Visible on testnet.
 const NAV_LINKS = [
-    { href: '/app/redeem', label: 'Redeem' },
-    { href: '/app/airdrop', label: 'Airdrop' },
+    { href: '/app/redeem', label: 'Redeem', mainnet: false },
+    { href: '/app/airdrop', label: 'Airdrop', mainnet: true },
 ] as const
 
 function isLinkActive(pathname: string, href: string) {
@@ -29,9 +33,11 @@ function isLinkActive(pathname: string, href: string) {
 }
 
 function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+    const chainId = useChainId()
+    const links = NAV_LINKS.filter((link) => link.mainnet || chainId !== bitkub.id)
     return (
         <>
-            {NAV_LINKS.map((link) => (
+            {links.map((link) => (
                 <Link
                     key={link.href}
                     href={link.href}

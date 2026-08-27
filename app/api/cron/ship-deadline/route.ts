@@ -3,7 +3,7 @@ import { rwaEscrowDeadlinesAbi } from '@/lib/abis/rwa-escrow'
 import { serverPublicClient } from '@/lib/onchain/public-client'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { cachedFetch } from '@/lib/server-cache'
-import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
+import { SUPPORTED_CHAIN_IDS, getContractAddresses } from '@/config/contract-addresses'
 
 const WARNING_WINDOW_SECONDS = 24 * 60 * 60 // flag orders within 24h of their deadline
 
@@ -13,11 +13,11 @@ function isAuthorizedCron(request: NextRequest): boolean {
     return request.headers.get('authorization') === `Bearer ${secret}`
 }
 
-async function readDeadlines(rwaEscrowAddress: `0x${string}`) {
+async function readDeadlines(chainId: number, rwaEscrowAddress: `0x${string}`) {
     return cachedFetch(
-        `rwa-escrow-deadlines:${rwaEscrowAddress}`,
+        `rwa-escrow-deadlines:${chainId}:${rwaEscrowAddress}`,
         async () => {
-            const client = serverPublicClient()
+            const client = serverPublicClient(chainId)
             const [shipDeadline, autoReleaseDeadline] = await Promise.all([
                 client.readContract({
                     address: rwaEscrowAddress,
@@ -39,8 +39,8 @@ async function readDeadlines(rwaEscrowAddress: `0x${string}`) {
 
 /**
  * Reader-only: reports RWA orders approaching their ship deadline (seller hasn't shipped) or
- * auto-release deadline (buyer hasn't confirmed receipt). Hit every 5 minutes by
- * .github/workflows/cron-sync-onchain.yml.
+ * auto-release deadline (buyer hasn't confirmed receipt), across every supported chain. Hit every
+ * 5 minutes by .github/workflows/cron-sync-onchain.yml.
  *
  * Does NOT send any notification yet — this repo has no Telegram bot integration built (only
  * TELEGRAM_BOT_TOKEN in .env.example, no bot code anywhere). Returns the at-risk orders so a
@@ -49,28 +49,33 @@ async function readDeadlines(rwaEscrowAddress: `0x${string}`) {
 export async function GET(request: NextRequest) {
     if (!isAuthorizedCron(request)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
-    const rwaEscrowAddress = CONTRACT_ADDRESSES.rwaEscrow
-    if (!rwaEscrowAddress) return NextResponse.json({ ok: true, results: { shipping: [], receiving: [] } })
-
-    const { shipDeadline, autoReleaseDeadline } = await readDeadlines(rwaEscrowAddress)
     const now = Date.now()
+    const shipping: unknown[] = []
+    const receiving: unknown[] = []
 
-    const [{ data: funded, error: fundedError }, { data: shipped, error: shippedError }] = await Promise.all([
-        supabaseAdmin().from('rwa_orders').select('*').eq('status', 'Funded'),
-        supabaseAdmin().from('rwa_orders').select('*').eq('status', 'Shipped'),
-    ])
-    if (fundedError) return NextResponse.json({ ok: false, error: fundedError.message }, { status: 500 })
-    if (shippedError) return NextResponse.json({ ok: false, error: shippedError.message }, { status: 500 })
+    for (const chainId of SUPPORTED_CHAIN_IDS) {
+        const rwaEscrowAddress = getContractAddresses(chainId).rwaEscrow
+        if (!rwaEscrowAddress) continue
 
-    const shipping = (funded ?? []).filter((o) => {
-        const deadline = new Date(o.funded_at).getTime() + shipDeadline * 1000
-        return deadline - now <= WARNING_WINDOW_SECONDS * 1000
-    })
-    const receiving = (shipped ?? []).filter((o) => {
-        if (!o.shipped_at) return false
-        const deadline = new Date(o.shipped_at).getTime() + autoReleaseDeadline * 1000
-        return deadline - now <= WARNING_WINDOW_SECONDS * 1000
-    })
+        const { shipDeadline, autoReleaseDeadline } = await readDeadlines(chainId, rwaEscrowAddress)
+
+        const [{ data: funded, error: fundedError }, { data: shipped, error: shippedError }] = await Promise.all([
+            supabaseAdmin().from('rwa_orders').select('*').eq('chain_id', chainId).eq('status', 'Funded'),
+            supabaseAdmin().from('rwa_orders').select('*').eq('chain_id', chainId).eq('status', 'Shipped'),
+        ])
+        if (fundedError) return NextResponse.json({ ok: false, error: fundedError.message }, { status: 500 })
+        if (shippedError) return NextResponse.json({ ok: false, error: shippedError.message }, { status: 500 })
+
+        for (const o of funded ?? []) {
+            const deadline = new Date(o.funded_at).getTime() + shipDeadline * 1000
+            if (deadline - now <= WARNING_WINDOW_SECONDS * 1000) shipping.push(o)
+        }
+        for (const o of shipped ?? []) {
+            if (!o.shipped_at) continue
+            const deadline = new Date(o.shipped_at).getTime() + autoReleaseDeadline * 1000
+            if (deadline - now <= WARNING_WINDOW_SECONDS * 1000) receiving.push(o)
+        }
+    }
 
     return NextResponse.json({ ok: true, results: { shipping, receiving } })
 }

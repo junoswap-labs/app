@@ -1,6 +1,7 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useChainId } from 'wagmi'
 import type { RedemptionOrder } from '@/types/redeem'
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -15,9 +16,10 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 /** The connected wallet's own redemption orders — "My Redemptions". The route is session-gated, so
  *  callers that render before sign-in (the header bell) pass enabled=false to skip a certain 401. */
 export function useMyRedeemOrders(enabled = true) {
+    const chainId = useChainId()
     return useQuery({
-        queryKey: ['redeem-orders', 'mine'],
-        queryFn: () => fetchJson<RedemptionOrder[]>('/api/redeem/orders'),
+        queryKey: ['redeem-orders', 'mine', chainId],
+        queryFn: () => fetchJson<RedemptionOrder[]>(`/api/redeem/orders?chainId=${chainId}`),
         enabled,
     })
 }

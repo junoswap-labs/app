@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSessionWallet } from '@/lib/auth/session'
 import { isAuthorizedOnChain } from '@/lib/onchain/roles'
 import { supabaseAdmin } from '@/lib/supabase/server'
+import { parseChainId, InvalidChainError } from '@/lib/onchain/request-chain'
 
 // Reads go straight to Supabase from the browser (public-read RLS policy) — this route only
 // handles creating a new listing, which needs a live on-chain Authorize check.
@@ -19,6 +20,15 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => null)
+
+    let chainId: number
+    try {
+        chainId = parseChainId(request, body?.chainId)
+    } catch (err) {
+        if (err instanceof InvalidChainError) return NextResponse.json({ error: err.message }, { status: 400 })
+        throw err
+    }
+
     const title = typeof body?.title === 'string' ? body.title.trim() : ''
     const description = typeof body?.description === 'string' ? body.description.trim() : ''
     const imageUrls = Array.isArray(body?.imageUrls) ? body.imageUrls.filter((u: unknown) => typeof u === 'string') : []
@@ -40,6 +50,7 @@ export async function POST(request: NextRequest) {
         .from('rwa_listings')
         .insert({
             id: listingId,
+            chain_id: chainId,
             seller_wallet: wallet,
             title,
             description,

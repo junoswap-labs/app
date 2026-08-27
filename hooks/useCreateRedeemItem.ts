@@ -1,6 +1,7 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useChainId } from 'wagmi'
 import type { RedeemKind, RedeemTier } from '@/types/redeem'
 
 export interface CreateRedeemItemInput {
@@ -30,12 +31,13 @@ export interface CreateRedeemItemInput {
  *  with their own wallet (transferring to RedeemNftSettlement's treasury). */
 export function useCreateRedeemItem() {
     const queryClient = useQueryClient()
+    const chainId = useChainId()
     return useMutation({
         mutationFn: async (input: CreateRedeemItemInput) => {
             const res = await fetch('/api/redeem/items', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(input),
+                body: JSON.stringify({ ...input, chainId }),
             })
             if (!res.ok) {
                 const body = await res.json().catch(() => null)

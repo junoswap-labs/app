@@ -12,8 +12,11 @@ import { formatAddress } from '@/lib/utils'
 const STALE_BLOCKS = 720n
 
 interface SyncStatus {
-    head: string
-    contracts: { contract: string; lastBlock: string; behind: string }[]
+    chains: {
+        chainId: number
+        head: string
+        contracts: { contract: string; lastBlock: string; behind: string }[]
+    }[]
 }
 
 interface AuditLog {
@@ -50,18 +53,24 @@ function SyncStatusCard() {
                     <p className="text-sm text-muted-foreground">Loading…</p>
                 ) : (
                     <>
-                        <p className="text-xs text-muted-foreground">Head block {data.head}</p>
-                        {data.contracts.map((contract) => {
-                            const behind = BigInt(contract.behind)
-                            return (
-                                <div key={contract.contract} className="flex items-center justify-between gap-3 text-sm">
-                                    <span className="font-mono text-xs">{contract.contract}</span>
-                                    <Badge variant={behind > STALE_BLOCKS ? 'destructive' : 'secondary'}>
-                                        {behind <= 0n ? 'up to date' : `${contract.behind} blocks behind`}
-                                    </Badge>
-                                </div>
-                            )
-                        })}
+                        {data.chains.map((chain) => (
+                            <div key={chain.chainId} className="space-y-2">
+                                <p className="text-xs text-muted-foreground">
+                                    Chain {chain.chainId} · head block {chain.head}
+                                </p>
+                                {chain.contracts.map((contract) => {
+                                    const behind = BigInt(contract.behind)
+                                    return (
+                                        <div key={contract.contract} className="flex items-center justify-between gap-3 text-sm">
+                                            <span className="font-mono text-xs">{contract.contract}</span>
+                                            <Badge variant={behind > STALE_BLOCKS ? 'destructive' : 'secondary'}>
+                                                {behind <= 0n ? 'up to date' : `${contract.behind} blocks behind`}
+                                            </Badge>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        ))}
                         <p className="text-xs text-muted-foreground">
                             A contract stuck far behind means the poller can&apos;t reach the head — check its deploy
                             block and the RPC before anything else.

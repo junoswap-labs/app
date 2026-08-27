@@ -8,15 +8,25 @@ import { campaignShareHash } from '@/lib/onchain/airdrop-share'
 // reprocessed log's audit insert just hits a 23505 conflict, which is swallowed as "already
 // logged", not an error. This is what makes services/sync/poller.ts safe to re-run over any
 // block range, including one it already processed.
+//
+// Multi-chain: the poller sweeps every supported chain and passes the originating chainId in `ctx`.
+// Rows the poller creates carry `chain_id`; guarded UPDATEs/reads that key on a backend-minted
+// bytes32 id (order_hash, listingId, campaignId) also scope by chain_id so a testnet id can never
+// touch a mainnet row even in the astronomically unlikely event the two collide.
 
 export interface DecodedLog extends Log {
     eventName: string
     args: Record<string, unknown>
 }
 
-export type SyncEventHandler = (log: DecodedLog) => Promise<void>
+export interface SyncContext {
+    chainId: number
+}
+
+export type SyncEventHandler = (log: DecodedLog, ctx: SyncContext) => Promise<void>
 
 async function logAudit(params: {
+    chainId: number
     action: string
     subjectType: string
     subjectId: string
@@ -34,6 +44,7 @@ async function logAudit(params: {
             actor_type: 'system',
             subject_type: params.subjectType,
             subject_id: params.subjectId,
+            chain_id: params.chainId,
             old_status: params.oldStatus ?? null,
             new_status: params.newStatus ?? null,
             tx_hash: params.log.transactionHash,
@@ -47,29 +58,31 @@ async function logAudit(params: {
     if (error && error.code !== '23505') throw error
 }
 
-export async function handleOrderFulfilled(log: DecodedLog): Promise<void> {
+export async function handleOrderFulfilled(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { orderHash, buyer, fee } = log.args as { orderHash: string; buyer: string; fee: bigint }
     const { error } = await supabaseAdmin()
         .from('nft_orders')
         .update({ status: 'filled', buyer: buyer.toLowerCase(), fee: fee.toString(), filled_at: new Date().toISOString() })
         .eq('order_hash', orderHash)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'active')
     if (error) throw error
-    await logAudit({ action: 'order.fulfilled', subjectType: 'nft_order', subjectId: orderHash, newStatus: 'filled', log })
+    await logAudit({ chainId: ctx.chainId, action: 'order.fulfilled', subjectType: 'nft_order', subjectId: orderHash, newStatus: 'filled', log })
 }
 
-export async function handleOrderCancelled(log: DecodedLog): Promise<void> {
+export async function handleOrderCancelled(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { orderHash } = log.args as { orderHash: string }
     const { error } = await supabaseAdmin()
         .from('nft_orders')
         .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
         .eq('order_hash', orderHash)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'active')
     if (error) throw error
-    await logAudit({ action: 'order.cancelled', subjectType: 'nft_order', subjectId: orderHash, newStatus: 'cancelled', log })
+    await logAudit({ chainId: ctx.chainId, action: 'order.cancelled', subjectType: 'nft_order', subjectId: orderHash, newStatus: 'cancelled', log })
 }
 
-export async function handleRwaFunded(log: DecodedLog): Promise<void> {
+export async function handleRwaFunded(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId, seller, buyer, paymentToken, amount, fundedAt } = log.args as {
         listingId: string
         seller: string
@@ -85,6 +98,7 @@ export async function handleRwaFunded(log: DecodedLog): Promise<void> {
         .upsert(
             {
                 id: listingId,
+                chain_id: ctx.chainId,
                 seller_wallet: seller.toLowerCase(),
                 buyer_wallet: buyer.toLowerCase(),
                 payment_token: paymentToken,
@@ -95,19 +109,26 @@ export async function handleRwaFunded(log: DecodedLog): Promise<void> {
             { onConflict: 'id', ignoreDuplicates: true }
         )
     if (error) throw error
-    await supabaseAdmin().from('rwa_listings').update({ status: 'funded' }).eq('id', listingId).eq('status', 'active')
-    await logAudit({ action: 'rwa.funded', subjectType: 'rwa_order', subjectId: listingId, newStatus: 'Funded', log })
+    await supabaseAdmin()
+        .from('rwa_listings')
+        .update({ status: 'funded' })
+        .eq('id', listingId)
+        .eq('chain_id', ctx.chainId)
+        .eq('status', 'active')
+    await logAudit({ chainId: ctx.chainId, action: 'rwa.funded', subjectType: 'rwa_order', subjectId: listingId, newStatus: 'Funded', log })
 }
 
-export async function handleRwaShipped(log: DecodedLog): Promise<void> {
+export async function handleRwaShipped(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId, shippedAt } = log.args as { listingId: string; shippedAt: bigint }
     const { error } = await supabaseAdmin()
         .from('rwa_orders')
         .update({ status: 'Shipped', shipped_at: new Date(Number(shippedAt) * 1000).toISOString() })
         .eq('id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Funded')
     if (error) throw error
     await logAudit({
+        chainId: ctx.chainId,
         action: 'rwa.shipped',
         subjectType: 'rwa_order',
         subjectId: listingId,
@@ -119,6 +140,7 @@ export async function handleRwaShipped(log: DecodedLog): Promise<void> {
 
 async function completeRwaOrder(
     log: DecodedLog,
+    ctx: SyncContext,
     listingId: string,
     fee: bigint,
     action: 'rwa.completed' | 'rwa.auto_released'
@@ -127,9 +149,11 @@ async function completeRwaOrder(
         .from('rwa_orders')
         .update({ status: 'Completed', fee: fee.toString(), completed_at: new Date().toISOString() })
         .eq('id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Shipped')
     if (error) throw error
     await logAudit({
+        chainId: ctx.chainId,
         action,
         subjectType: 'rwa_order',
         subjectId: listingId,
@@ -140,27 +164,29 @@ async function completeRwaOrder(
 }
 
 /** Ordinary confirmReceived() completion. */
-export async function handleRwaCompleted(log: DecodedLog): Promise<void> {
+export async function handleRwaCompleted(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId, fee } = log.args as { listingId: string; fee: bigint }
-    await completeRwaOrder(log, listingId, fee, 'rwa.completed')
+    await completeRwaOrder(log, ctx, listingId, fee, 'rwa.completed')
 }
 
 /** claimShipmentTimeout() completion — same DB effect as handleRwaCompleted, different audit action
  *  so history distinguishes "buyer confirmed" from "buyer never confirmed, auto-released". */
-export async function handleRwaAutoReleased(log: DecodedLog): Promise<void> {
+export async function handleRwaAutoReleased(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId, fee } = log.args as { listingId: string; fee: bigint }
-    await completeRwaOrder(log, listingId, fee, 'rwa.auto_released')
+    await completeRwaOrder(log, ctx, listingId, fee, 'rwa.auto_released')
 }
 
-export async function handleRwaRefunded(log: DecodedLog): Promise<void> {
+export async function handleRwaRefunded(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId } = log.args as { listingId: string }
     const { error } = await supabaseAdmin()
         .from('rwa_orders')
         .update({ status: 'Refunded' })
         .eq('id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Funded')
     if (error) throw error
     await logAudit({
+        chainId: ctx.chainId,
         action: 'rwa.refunded',
         subjectType: 'rwa_order',
         subjectId: listingId,
@@ -170,15 +196,17 @@ export async function handleRwaRefunded(log: DecodedLog): Promise<void> {
     })
 }
 
-export async function handleRwaDisputeOpened(log: DecodedLog): Promise<void> {
+export async function handleRwaDisputeOpened(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId } = log.args as { listingId: string }
     const { error } = await supabaseAdmin()
         .from('rwa_orders')
         .update({ status: 'Disputed' })
         .eq('id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Shipped')
     if (error) throw error
     await logAudit({
+        chainId: ctx.chainId,
         action: 'rwa.dispute_opened',
         subjectType: 'rwa_order',
         subjectId: listingId,
@@ -188,16 +216,18 @@ export async function handleRwaDisputeOpened(log: DecodedLog): Promise<void> {
     })
 }
 
-export async function handleRwaDisputeResolved(log: DecodedLog): Promise<void> {
+export async function handleRwaDisputeResolved(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId, releasedToSeller } = log.args as { listingId: string; releasedToSeller: boolean }
     const newStatus = releasedToSeller ? 'ResolvedSeller' : 'ResolvedBuyer'
     const { error } = await supabaseAdmin()
         .from('rwa_orders')
         .update({ status: newStatus, resolved_at: new Date().toISOString() })
         .eq('id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Disputed')
     if (error) throw error
     await logAudit({
+        chainId: ctx.chainId,
         action: 'rwa.dispute_resolved',
         subjectType: 'rwa_order',
         subjectId: listingId,
@@ -227,6 +257,7 @@ export const marketplaceEventHandlers: Record<string, SyncEventHandler> = {
 // contract to its own handler map rather than one global eventName -> handler lookup).
 
 async function logRedeemAudit(params: {
+    chainId: number
     action: string
     subjectId: string
     oldStatus?: string
@@ -243,6 +274,7 @@ async function logRedeemAudit(params: {
             actor_type: 'system',
             subject_type: 'redemption_order',
             subject_id: params.subjectId,
+            chain_id: params.chainId,
             old_status: params.oldStatus ?? null,
             new_status: params.newStatus ?? null,
             tx_hash: params.log.transactionHash,
@@ -263,6 +295,7 @@ async function logRedeemAudit(params: {
  * raced the same last unit and both paid on-chain before either got confirmed), the payment still
  * stands — there's no way to claw back a completed on-chain tx — so this just skips the decrement
  * rather than throwing, leaving the oversold order for an admin to notice and handle manually.
+ * item_id/variant_id are DB serial PKs (globally unique), so no chain scoping is needed here.
  */
 async function decrementRedeemStock(itemId: number, variantId: number | null): Promise<void> {
     if (variantId != null) {
@@ -297,27 +330,29 @@ async function decrementRedeemStock(itemId: number, variantId: number | null): P
 }
 
 /** RedeemNftSettlement.NftRedeemed — the NFT leg settles atomically, straight to 'Completed'. */
-export async function handleNftRedeemed(log: DecodedLog): Promise<void> {
+export async function handleNftRedeemed(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { offerHash } = log.args as { offerHash: string }
     const { data, error } = await supabaseAdmin()
         .from('redemption_orders')
         .update({ status: 'Completed', completed_at: new Date().toISOString() })
         .eq('offer_hash', offerHash)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'PendingPayment')
         .select('id, item_id, variant_id')
         .maybeSingle()
     if (error) throw error
     if (!data) return // already processed, or the row hasn't been inserted yet — safe to skip
     await decrementRedeemStock(data.item_id, data.variant_id)
-    await logRedeemAudit({ action: 'redeem.nft_completed', subjectId: data.id, newStatus: 'Completed', log })
+    await logRedeemAudit({ chainId: ctx.chainId, action: 'redeem.nft_completed', subjectId: data.id, newStatus: 'Completed', log })
 }
 
-export async function handleRedeemRwaFunded(log: DecodedLog): Promise<void> {
+export async function handleRedeemRwaFunded(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId, fundedAt } = log.args as { listingId: string; fundedAt: bigint }
     const { data, error } = await supabaseAdmin()
         .from('redemption_orders')
         .update({ status: 'Funded', updated_at: new Date(Number(fundedAt) * 1000).toISOString() })
         .eq('escrow_listing_id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'PendingPayment')
         .select('id, item_id, variant_id')
         .maybeSingle()
@@ -325,6 +360,7 @@ export async function handleRedeemRwaFunded(log: DecodedLog): Promise<void> {
     if (!data) return
     await decrementRedeemStock(data.item_id, data.variant_id)
     await logRedeemAudit({
+        chainId: ctx.chainId,
         action: 'redeem.merch_funded',
         subjectId: data.id,
         oldStatus: 'PendingPayment',
@@ -333,18 +369,20 @@ export async function handleRedeemRwaFunded(log: DecodedLog): Promise<void> {
     })
 }
 
-export async function handleRedeemRwaShipped(log: DecodedLog): Promise<void> {
+export async function handleRedeemRwaShipped(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId, shippedAt } = log.args as { listingId: string; shippedAt: bigint }
     const { data, error } = await supabaseAdmin()
         .from('redemption_orders')
         .update({ status: 'Shipped', shipped_at: new Date(Number(shippedAt) * 1000).toISOString() })
         .eq('escrow_listing_id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Funded')
         .select('id')
         .maybeSingle()
     if (error) throw error
     if (!data) return
     await logRedeemAudit({
+        chainId: ctx.chainId,
         action: 'redeem.merch_shipped',
         subjectId: data.id,
         oldStatus: 'Funded',
@@ -353,41 +391,44 @@ export async function handleRedeemRwaShipped(log: DecodedLog): Promise<void> {
     })
 }
 
-async function completeRedeemOrder(log: DecodedLog, listingId: string, action: string): Promise<void> {
+async function completeRedeemOrder(log: DecodedLog, ctx: SyncContext, listingId: string, action: string): Promise<void> {
     const { data, error } = await supabaseAdmin()
         .from('redemption_orders')
         .update({ status: 'Completed', completed_at: new Date().toISOString() })
         .eq('escrow_listing_id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Shipped')
         .select('id')
         .maybeSingle()
     if (error) throw error
     if (!data) return
-    await logRedeemAudit({ action, subjectId: data.id, oldStatus: 'Shipped', newStatus: 'Completed', log })
+    await logRedeemAudit({ chainId: ctx.chainId, action, subjectId: data.id, oldStatus: 'Shipped', newStatus: 'Completed', log })
 }
 
-export async function handleRedeemRwaCompleted(log: DecodedLog): Promise<void> {
+export async function handleRedeemRwaCompleted(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId } = log.args as { listingId: string }
-    await completeRedeemOrder(log, listingId, 'redeem.merch_completed')
+    await completeRedeemOrder(log, ctx, listingId, 'redeem.merch_completed')
 }
 
-export async function handleRedeemRwaAutoReleased(log: DecodedLog): Promise<void> {
+export async function handleRedeemRwaAutoReleased(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId } = log.args as { listingId: string }
-    await completeRedeemOrder(log, listingId, 'redeem.merch_auto_released')
+    await completeRedeemOrder(log, ctx, listingId, 'redeem.merch_auto_released')
 }
 
-export async function handleRedeemRwaRefunded(log: DecodedLog): Promise<void> {
+export async function handleRedeemRwaRefunded(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId } = log.args as { listingId: string }
     const { data, error } = await supabaseAdmin()
         .from('redemption_orders')
         .update({ status: 'Refunded' })
         .eq('escrow_listing_id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Funded')
         .select('id')
         .maybeSingle()
     if (error) throw error
     if (!data) return
     await logRedeemAudit({
+        chainId: ctx.chainId,
         action: 'redeem.merch_refunded',
         subjectId: data.id,
         oldStatus: 'Funded',
@@ -396,18 +437,20 @@ export async function handleRedeemRwaRefunded(log: DecodedLog): Promise<void> {
     })
 }
 
-export async function handleRedeemRwaDisputeOpened(log: DecodedLog): Promise<void> {
+export async function handleRedeemRwaDisputeOpened(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId } = log.args as { listingId: string }
     const { data, error } = await supabaseAdmin()
         .from('redemption_orders')
         .update({ status: 'Disputed' })
         .eq('escrow_listing_id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Shipped')
         .select('id')
         .maybeSingle()
     if (error) throw error
     if (!data) return
     await logRedeemAudit({
+        chainId: ctx.chainId,
         action: 'redeem.merch_dispute_opened',
         subjectId: data.id,
         oldStatus: 'Shipped',
@@ -416,19 +459,21 @@ export async function handleRedeemRwaDisputeOpened(log: DecodedLog): Promise<voi
     })
 }
 
-export async function handleRedeemRwaDisputeResolved(log: DecodedLog): Promise<void> {
+export async function handleRedeemRwaDisputeResolved(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { listingId, releasedToSeller } = log.args as { listingId: string; releasedToSeller: boolean }
     const newStatus = releasedToSeller ? 'ResolvedSeller' : 'ResolvedBuyer'
     const { data, error } = await supabaseAdmin()
         .from('redemption_orders')
         .update({ status: newStatus, resolved_at: new Date().toISOString() })
         .eq('escrow_listing_id', listingId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'Disputed')
         .select('id')
         .maybeSingle()
     if (error) throw error
     if (!data) return
     await logRedeemAudit({
+        chainId: ctx.chainId,
         action: 'redeem.merch_dispute_resolved',
         subjectId: data.id,
         oldStatus: 'Disputed',
@@ -464,6 +509,7 @@ export const redeemRwaEventHandlers: Record<string, SyncEventHandler> = {
 // sync_state unadvanced and retries cleanly on the next run (see services/sync/poller.ts).
 
 async function logAirdropAudit(params: {
+    chainId: number
     action: string
     subjectId: string
     oldStatus?: string
@@ -480,6 +526,7 @@ async function logAirdropAudit(params: {
             actor_type: 'system',
             subject_type: 'airdrop_campaign',
             subject_id: params.subjectId,
+            chain_id: params.chainId,
             old_status: params.oldStatus ?? null,
             new_status: params.newStatus ?? null,
             tx_hash: params.log.transactionHash,
@@ -493,7 +540,7 @@ async function logAirdropAudit(params: {
     if (error && error.code !== '23505') throw error
 }
 
-export async function handleAirdropCampaignCreated(log: DecodedLog): Promise<void> {
+export async function handleAirdropCampaignCreated(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const {
         campaignId,
         creator,
@@ -526,6 +573,7 @@ export async function handleAirdropCampaignCreated(log: DecodedLog): Promise<voi
         .upsert(
             {
                 id: campaignId,
+                chain_id: ctx.chainId,
                 creator_wallet: creator.toLowerCase(),
                 token,
                 amount_mode: amountMode === 0 ? 'fixed' : 'random',
@@ -554,12 +602,13 @@ export async function handleAirdropCampaignCreated(log: DecodedLog): Promise<voi
         .from('airdrop_campaigns')
         .update({ tx_hash: log.transactionHash })
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
         .is('tx_hash', null)
 
-    await logAirdropAudit({ action: 'airdrop.campaign_created', subjectId: campaignId, newStatus: 'active', log })
+    await logAirdropAudit({ chainId: ctx.chainId, action: 'airdrop.campaign_created', subjectId: campaignId, newStatus: 'active', log })
 }
 
-export async function handleAirdropClaimed(log: DecodedLog): Promise<void> {
+export async function handleAirdropClaimed(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { campaignId, recipient, amount, submitter, closesCampaign } = log.args as {
         campaignId: string
         recipient: string
@@ -573,6 +622,7 @@ export async function handleAirdropClaimed(log: DecodedLog): Promise<void> {
         .upsert(
             {
                 campaign_id: campaignId,
+                chain_id: ctx.chainId,
                 recipient_wallet: recipient.toLowerCase(),
                 amount: amount.toString(),
                 tx_hash: log.transactionHash ?? '',
@@ -590,6 +640,7 @@ export async function handleAirdropClaimed(log: DecodedLog): Promise<void> {
         .from('airdrop_campaigns')
         .select('remaining_amount, claimed_count')
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
         .single()
     if (readError) throw readError
 
@@ -604,6 +655,7 @@ export async function handleAirdropClaimed(log: DecodedLog): Promise<void> {
             status: closesCampaign ? 'closed' : 'active',
         })
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
         .eq('claimed_count', campaign.claimed_count) // optimistic lock — see header comment
         .select('id')
         .maybeSingle()
@@ -611,6 +663,7 @@ export async function handleAirdropClaimed(log: DecodedLog): Promise<void> {
     if (!updated) throw new Error(`airdrop_campaigns ${campaignId} claimed_count changed concurrently — retry`)
 
     await logAirdropAudit({
+        chainId: ctx.chainId,
         action: 'airdrop.claimed',
         subjectId: campaignId,
         newStatus: closesCampaign ? 'closed' : 'active',
@@ -619,7 +672,7 @@ export async function handleAirdropClaimed(log: DecodedLog): Promise<void> {
     })
 }
 
-export async function handleAirdropCampaignClosed(log: DecodedLog): Promise<void> {
+export async function handleAirdropCampaignClosed(log: DecodedLog, ctx: SyncContext): Promise<void> {
     // Emitted alongside AirdropClaimed's closesCampaign=true (handled above already) — this handler
     // only matters for completeness/idempotency if it's ever processed on its own.
     const { campaignId } = log.args as { campaignId: string }
@@ -627,25 +680,27 @@ export async function handleAirdropCampaignClosed(log: DecodedLog): Promise<void
         .from('airdrop_campaigns')
         .update({ status: 'closed' })
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
         .eq('status', 'active')
     if (error) throw error
 }
 
-export async function handleAirdropCampaignReclaimed(log: DecodedLog): Promise<void> {
+export async function handleAirdropCampaignReclaimed(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { campaignId } = log.args as { campaignId: string }
     const { error } = await supabaseAdmin()
         .from('airdrop_campaigns')
         .update({ remaining_amount: '0', status: 'reclaimed' })
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
         .neq('status', 'reclaimed')
     if (error) throw error
-    await logAirdropAudit({ action: 'airdrop.reclaimed', subjectId: campaignId, newStatus: 'reclaimed', log })
+    await logAirdropAudit({ chainId: ctx.chainId, action: 'airdrop.reclaimed', subjectId: campaignId, newStatus: 'reclaimed', log })
 }
 
 /** gas_spent is a running counter too, so idempotency is anchored the same way as
  *  handleAirdropClaimed above: on airdrop_gas_reimbursements' (tx_hash, log_index) unique index,
  *  via the same "insert first, only proceed if it actually landed" idiom. */
-export async function handleAirdropGasReimbursed(log: DecodedLog): Promise<void> {
+export async function handleAirdropGasReimbursed(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { campaignId, amount } = log.args as { campaignId: string; relayer: string; amount: bigint }
 
     const { data: inserted, error: insertError } = await supabaseAdmin()
@@ -653,6 +708,7 @@ export async function handleAirdropGasReimbursed(log: DecodedLog): Promise<void>
         .upsert(
             {
                 campaign_id: campaignId,
+                chain_id: ctx.chainId,
                 tx_hash: log.transactionHash ?? '',
                 log_index: log.logIndex ?? 0,
                 amount: amount.toString(),
@@ -668,6 +724,7 @@ export async function handleAirdropGasReimbursed(log: DecodedLog): Promise<void>
         .from('airdrop_campaigns')
         .select('gas_spent')
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
         .single()
     if (readError) throw readError
 
@@ -675,6 +732,7 @@ export async function handleAirdropGasReimbursed(log: DecodedLog): Promise<void>
         .from('airdrop_campaigns')
         .update({ gas_spent: (BigInt(campaign.gas_spent) + amount).toString() })
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
         .eq('gas_spent', campaign.gas_spent) // optimistic lock, same idiom as claimed_count above
         .select('id')
         .maybeSingle()
@@ -684,12 +742,13 @@ export async function handleAirdropGasReimbursed(log: DecodedLog): Promise<void>
 
 /** Idempotent regardless of reprocessing — setting gas_spent to the deposit's full amount is the
  *  same result no matter how many times a reprocessed GasReclaimed log runs it. */
-export async function handleAirdropGasReclaimed(log: DecodedLog): Promise<void> {
+export async function handleAirdropGasReclaimed(log: DecodedLog, ctx: SyncContext): Promise<void> {
     const { campaignId } = log.args as { campaignId: string; to: string; amount: bigint }
     const { data: campaign, error: readError } = await supabaseAdmin()
         .from('airdrop_campaigns')
         .select('gas_deposit')
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
         .single()
     if (readError) throw readError
 
@@ -697,6 +756,7 @@ export async function handleAirdropGasReclaimed(log: DecodedLog): Promise<void> 
         .from('airdrop_campaigns')
         .update({ gas_spent: campaign.gas_deposit })
         .eq('id', campaignId)
+        .eq('chain_id', ctx.chainId)
     if (updateError) throw updateError
 }
 

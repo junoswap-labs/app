@@ -1,5 +1,6 @@
 import { serverPublicClient } from '@/lib/onchain/public-client'
 import { getSyncTargets } from '@/lib/onchain/sync-contracts'
+import { SUPPORTED_CHAIN_IDS } from '@/config/contract-addresses'
 import { getSyncState, setSyncState } from '@/services/sync/sync-state'
 
 // Chunk size per getLogs call — bounds how much a single run scans even after a long gap
@@ -12,6 +13,7 @@ const MAX_BLOCK_RANGE = 5_000n
 const RUN_TIME_BUDGET_MS = 20_000
 
 export interface SyncResult {
+    chainId: number
     contract: string
     fromBlock: string
     toBlock: string
@@ -20,23 +22,36 @@ export interface SyncResult {
     caughtUp: boolean
 }
 
-/** Runs one incremental sync pass over every deployed contract in lib/onchain/sync-contracts.ts. */
+/** Runs one incremental sync pass over every deployed contract on every supported chain
+ *  (config/contract-addresses.ts). Nothing here is bound to a single chain. */
 export async function runSync(): Promise<SyncResult[]> {
-    const client = serverPublicClient()
-    const latestBlock = await client.getBlockNumber()
     const results: SyncResult[] = []
 
-    // Split the budget per target so one contract far behind the head can't starve the others of
-    // their catch-up time (targets are always processed in the same order).
-    const targets = getSyncTargets()
-    const perTargetBudgetMs = RUN_TIME_BUDGET_MS / Math.max(targets.length, 1)
+    // Flatten (chain, target) pairs first so the time budget is split evenly across all of them —
+    // one contract far behind the head can't starve the others (pairs are processed in a stable
+    // order: chains in SUPPORTED_CHAIN_IDS order, targets in getSyncTargets order).
+    const pairs = SUPPORTED_CHAIN_IDS.flatMap((chainId) =>
+        getSyncTargets(chainId).map((target) => ({ chainId, target }))
+    )
+    const perPairBudgetMs = RUN_TIME_BUDGET_MS / Math.max(pairs.length, 1)
 
-    for (const target of targets) {
-        const lastProcessed = await getSyncState(target.contract)
+    // One head read per chain, reused across that chain's targets.
+    const heads = new Map<number, bigint>()
+
+    for (const { chainId, target } of pairs) {
+        const client = serverPublicClient(chainId)
+        let latestBlock = heads.get(chainId)
+        if (latestBlock === undefined) {
+            latestBlock = await client.getBlockNumber()
+            heads.set(chainId, latestBlock)
+        }
+
+        const lastProcessed = await getSyncState(chainId, target.contract)
         const fromBlock = lastProcessed !== null ? lastProcessed + 1n : target.deployBlock
 
         if (fromBlock > latestBlock) {
             results.push({
+                chainId,
                 contract: target.contract,
                 fromBlock: fromBlock.toString(),
                 toBlock: fromBlock.toString(),
@@ -54,7 +69,7 @@ export async function runSync(): Promise<SyncResult[]> {
         let cursor = fromBlock
         let eventsSeen = 0
         let lastProcessedBlock = fromBlock - 1n
-        const deadline = Date.now() + perTargetBudgetMs
+        const deadline = Date.now() + perPairBudgetMs
 
         while (cursor <= latestBlock && Date.now() < deadline) {
             const toBlock = cursor + MAX_BLOCK_RANGE < latestBlock ? cursor + MAX_BLOCK_RANGE : latestBlock
@@ -72,18 +87,19 @@ export async function runSync(): Promise<SyncResult[]> {
                 // stays undefined if a new event is added to the ABI slice without a matching
                 // handler, which is a bug to surface loudly, not swallow.
                 if (!handler) throw new Error(`no sync handler registered for ${target.contract}.${log.eventName}`)
-                await handler(log as Parameters<typeof handler>[0])
+                await handler(log as Parameters<typeof handler>[0], { chainId })
             }
 
             // Persisted per chunk, not once at the end: a timeout or crash mid-catch-up then
             // resumes from the last fully-handled window rather than replaying from the start.
-            await setSyncState(target.contract, toBlock)
+            await setSyncState(chainId, target.contract, toBlock)
             eventsSeen += logs.length
             lastProcessedBlock = toBlock
             cursor = toBlock + 1n
         }
 
         results.push({
+            chainId,
             contract: target.contract,
             fromBlock: fromBlock.toString(),
             toBlock: lastProcessedBlock.toString(),

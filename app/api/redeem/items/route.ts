@@ -9,7 +9,8 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { parseBaseUnitsAmount } from '@/lib/amount'
 import type { RedeemItemVariant, RedeemKind, RedeemTier } from '@/types/redeem'
 import { isAppHostedImageUrl } from '@/lib/image'
-import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
+import { getContractAddresses } from '@/config/contract-addresses'
+import { parseChainId, InvalidChainError } from '@/lib/onchain/request-chain'
 
 // Public browsing (published items only) reads straight from Supabase via the browser client —
 // same convention as rwa_listings/collections (public-read RLS policy, see
@@ -21,10 +22,19 @@ export async function GET(request: NextRequest) {
     const wallet = getSessionWallet(request)
     if (!wallet) return NextResponse.json({ error: 'not signed in' }, { status: 401 })
 
+    let chainId: number
+    try {
+        chainId = parseChainId(request)
+    } catch (err) {
+        if (err instanceof InvalidChainError) return NextResponse.json({ error: err.message }, { status: 400 })
+        throw err
+    }
+
     const { data, error } = await supabaseAdmin()
         .from('redeem_items')
         .select('*, redeem_item_variants(*)')
         .eq('lister_wallet', wallet)
+        .eq('chain_id', chainId)
         .order('created_at', { ascending: false })
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -42,6 +52,15 @@ export async function POST(request: NextRequest) {
     if (!wallet) return NextResponse.json({ error: 'not signed in' }, { status: 401 })
 
     const body = await request.json().catch(() => null)
+
+    let chainId: number
+    try {
+        chainId = parseChainId(request, body?.chainId)
+    } catch (err) {
+        if (err instanceof InvalidChainError) return NextResponse.json({ error: err.message }, { status: 400 })
+        throw err
+    }
+
     const tier = body?.tier as RedeemTier
     const kind = body?.kind as RedeemKind
     if (tier !== 'official' && tier !== 'registered') {
@@ -131,12 +150,12 @@ export async function POST(request: NextRequest) {
         // request. Official items are minted fresh at redemption time (IMintableERC721.mint), so
         // there's no vault to check. Skipped only if the contract isn't deployed yet, matching the
         // "safely no-ops pre-deployment" convention used by useOnChainRoles.ts.
-        const settlementAddress = CONTRACT_ADDRESSES.redeemNftSettlement
+        const settlementAddress = getContractAddresses(chainId).redeemNftSettlement
         if (tier === 'registered' && settlementAddress) {
             let owner: string
             let treasury: string
             try {
-                const client = serverPublicClient()
+                const client = serverPublicClient(chainId)
                 ;[owner, treasury] = await Promise.all([
                     client.readContract({
                         address: nftContract as `0x${string}`,
@@ -185,10 +204,10 @@ export async function POST(request: NextRequest) {
         // specifically to close that gap here, best-effort, so a first-ever item in a given token
         // just works instead of every buyer hitting "payment token not allowed" until someone
         // notices and fixes it by hand via /app/admin.
-        const redeemEscrowAddress = CONTRACT_ADDRESSES.redeemRwaEscrow
+        const redeemEscrowAddress = getContractAddresses(chainId).redeemRwaEscrow
         if (redeemEscrowAddress) {
             try {
-                const client = serverPublicClient()
+                const client = serverPublicClient(chainId)
                 const alreadyAllowed = await client.readContract({
                     address: redeemEscrowAddress as `0x${string}`,
                     abi: rwaEscrowAbi,
@@ -196,7 +215,7 @@ export async function POST(request: NextRequest) {
                     args: [paymentToken as `0x${string}`],
                 })
                 if (!alreadyAllowed) {
-                    const wallet = redeemOperatorWalletClient()
+                    const wallet = redeemOperatorWalletClient(chainId)
                     const hash = await wallet.writeContract({
                         chain: wallet.chain,
                         account: wallet.account,
@@ -237,6 +256,7 @@ export async function POST(request: NextRequest) {
         .insert({
             tier,
             kind,
+            chain_id: chainId,
             lister_wallet: wallet,
             name,
             description,
@@ -266,7 +286,7 @@ export async function POST(request: NextRequest) {
     if (variants.length > 0) {
         const { data: variantRows, error: variantError } = await supabaseAdmin()
             .from('redeem_item_variants')
-            .insert(variants.map((v) => ({ item_id: item.id, label: v.label, sku: v.sku ?? null, stock: v.stock ?? null })))
+            .insert(variants.map((v) => ({ item_id: item.id, chain_id: chainId, label: v.label, sku: v.sku ?? null, stock: v.stock ?? null })))
             .select()
         if (variantError) return NextResponse.json({ error: variantError.message }, { status: 500 })
         insertedVariants = (variantRows ?? []) as RedeemItemVariant[]

@@ -7,7 +7,8 @@ import { isAppHostedImageUrl } from '@/lib/image'
 import { campaignShareHash } from '@/lib/onchain/airdrop-share'
 import { airdropEscrowAbi } from '@/lib/abis/airdrop'
 import type { Database } from '@/types/supabase'
-import { CONTRACT_ADDRESSES } from '@/config/contract-addresses'
+import { getContractAddresses } from '@/config/contract-addresses'
+import { parseChainId, InvalidChainError } from '@/lib/onchain/request-chain'
 
 type CampaignUpdate = Database['public']['Tables']['airdrop_campaigns']['Update']
 
@@ -21,11 +22,11 @@ const CAMPAIGN_STATUS = ['active', 'closed', 'reclaimed'] as const
  * request body, so this doesn't become a client-writable status path. The poller's own upsert is
  * `ignoreDuplicates`, so it won't clobber the row afterwards — it only backfills tx_hash.
  */
-async function seedFromChain(id: string, wallet: string) {
-    const escrow = CONTRACT_ADDRESSES.airdropEscrow
+async function seedFromChain(id: string, wallet: string, chainId: number) {
+    const escrow = getContractAddresses(chainId).airdropEscrow
     if (!escrow) return { error: 'AirdropEscrow is not deployed yet', status: 500 as const }
 
-    const campaign = await serverPublicClient().readContract({
+    const campaign = await serverPublicClient(chainId).readContract({
         address: escrow,
         abi: airdropEscrowAbi,
         functionName: 'getCampaign',
@@ -45,6 +46,7 @@ async function seedFromChain(id: string, wallet: string) {
         .upsert(
             {
                 id,
+                chain_id: chainId,
                 creator_wallet: campaign.creator.toLowerCase(),
                 token: campaign.token,
                 amount_mode: campaign.amountMode === 0 ? 'fixed' : 'random',
@@ -83,10 +85,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const body = await request.json().catch(() => null)
     if (!body) return NextResponse.json({ error: 'invalid body' }, { status: 400 })
 
+    let chainId: number
+    try {
+        chainId = parseChainId(request, body.chainId)
+    } catch (err) {
+        if (err instanceof InvalidChainError) return NextResponse.json({ error: err.message }, { status: 400 })
+        throw err
+    }
+
     const { data: existing, error: fetchError } = await supabaseAdmin()
         .from('airdrop_campaigns')
         .select('creator_wallet, title, description, cover_image_url, visibility')
         .eq('id', id)
+        .eq('chain_id', chainId)
         .maybeSingle()
     if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
 
@@ -96,7 +107,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const isAdmin = await isAdminOnChain(wallet as `0x${string}`)
 
     if (!existing) {
-        const failure = await seedFromChain(id, wallet)
+        const failure = await seedFromChain(id, wallet, chainId)
         if (failure) return NextResponse.json({ error: failure.error }, { status: failure.status })
     } else if (!isAdmin && existing.creator_wallet.toLowerCase() !== wallet.toLowerCase()) {
         return NextResponse.json({ error: "not this campaign's creator" }, { status: 403 })
@@ -157,6 +168,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         .from('airdrop_campaigns')
         .update(update)
         .eq('id', id)
+        .eq('chain_id', chainId)
         .select()
         .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -171,6 +183,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             actor_type: editedSomeoneElses ? 'admin' : 'user',
             subject_type: 'airdrop_campaign',
             subject_id: id,
+            chain_id: chainId,
             old_status: null,
             new_status: null,
             tx_hash: null,

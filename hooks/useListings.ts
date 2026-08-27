@@ -39,6 +39,7 @@ function useNftOrders() {
             const { data, error } = await supabaseBrowser()
                 .from('nft_orders')
                 .select('*')
+                .eq('chain_id', chainId)
                 .in('status', ['active', 'filled'])
                 .order('listed_at', { ascending: false })
             if (error) throw error

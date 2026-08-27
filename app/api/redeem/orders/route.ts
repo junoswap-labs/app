@@ -5,9 +5,10 @@ import { getSessionWallet } from '@/lib/auth/session'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { computeRedeemOfferHash, redeemOfferDomain, REDEEM_OFFER_TYPES, type RedeemOffer } from '@/lib/eip712'
 import type { ShippingInfo } from '@/types/redeem'
-import { CONTRACT_ADDRESSES, DEFAULT_CHAIN_ID } from '@/config/contract-addresses'
+import { getContractAddresses } from '@/config/contract-addresses'
+import { parseChainId, InvalidChainError } from '@/lib/onchain/request-chain'
 
-async function logOrderCreated(orderId: string, actorWallet: string, metadata: Record<string, unknown>) {
+async function logOrderCreated(orderId: string, chainId: number, actorWallet: string, metadata: Record<string, unknown>) {
     await supabaseAdmin().from('audit_logs').insert({
         category: 'client',
         action: 'redeem.order_created',
@@ -15,6 +16,7 @@ async function logOrderCreated(orderId: string, actorWallet: string, metadata: R
         actor_type: 'buyer',
         subject_type: 'redemption_order',
         subject_id: orderId,
+        chain_id: chainId,
         old_status: null,
         new_status: 'PendingPayment',
         tx_hash: null,
@@ -42,6 +44,15 @@ export async function POST(request: NextRequest) {
     if (!wallet) return NextResponse.json({ error: 'not signed in' }, { status: 401 })
 
     const body = await request.json().catch(() => null)
+
+    let chainId: number
+    try {
+        chainId = parseChainId(request, body?.chainId)
+    } catch (err) {
+        if (err instanceof InvalidChainError) return NextResponse.json({ error: err.message }, { status: 400 })
+        throw err
+    }
+
     const itemId = Number(body?.item_id)
     const variantId = body?.variant_id != null ? Number(body.variant_id) : null
     if (!Number.isInteger(itemId)) {
@@ -52,6 +63,7 @@ export async function POST(request: NextRequest) {
         .from('redeem_items')
         .select('*')
         .eq('id', itemId)
+        .eq('chain_id', chainId)
         .eq('status', 'published')
         .maybeSingle()
     if (itemError) return NextResponse.json({ error: itemError.message }, { status: 500 })
@@ -73,6 +85,7 @@ export async function POST(request: NextRequest) {
             .from('redemption_orders')
             .select('id', { count: 'exact', head: true })
             .eq('item_id', item.id)
+            .eq('chain_id', chainId)
             .eq('buyer_wallet', wallet)
             .neq('status', 'PendingPayment')
         if (countError) return NextResponse.json({ error: countError.message }, { status: 500 })
@@ -107,6 +120,7 @@ export async function POST(request: NextRequest) {
 
     const baseOrder = {
         item_id: item.id,
+        chain_id: chainId,
         variant_id: variant?.id ?? null,
         buyer_wallet: wallet,
         tier: item.tier,
@@ -120,10 +134,10 @@ export async function POST(request: NextRequest) {
 
     if (item.kind === 'nft') {
         const operatorKey = process.env.REDEEM_OPERATOR_PRIVATE_KEY
-        const operatorAddress = CONTRACT_ADDRESSES.redeemOperator
-        const settlementAddress = CONTRACT_ADDRESSES.redeemNftSettlement
-        const junoPtsAddress = CONTRACT_ADDRESSES.junoPts
-        const chainId = DEFAULT_CHAIN_ID
+        const addresses = getContractAddresses(chainId)
+        const operatorAddress = addresses.redeemOperator
+        const settlementAddress = addresses.redeemNftSettlement
+        const junoPtsAddress = addresses.junoPts
         if (!operatorKey || !operatorAddress || !settlementAddress || !junoPtsAddress) {
             return NextResponse.json({ error: 'Redeem NFT settlement is not configured yet' }, { status: 500 })
         }
@@ -167,7 +181,7 @@ export async function POST(request: NextRequest) {
             .select()
             .single()
         if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-        await logOrderCreated(order.id, wallet, { kind: 'nft', offer_hash: offerHash })
+        await logOrderCreated(order.id, chainId, wallet, { kind: 'nft', offer_hash: offerHash })
 
         return NextResponse.json(
             {
@@ -219,7 +233,7 @@ export async function POST(request: NextRequest) {
     }
 
     const escrowListingId = `0x${randomBytes(32).toString('hex')}`
-    const officialTreasury = CONTRACT_ADDRESSES.redeemOfficialTreasury
+    const officialTreasury = getContractAddresses(chainId).redeemOfficialTreasury
     const seller = item.tier === 'registered' ? item.payout_wallet : officialTreasury
     if (!seller) {
         return NextResponse.json({ error: 'no payout destination configured for this item' }, { status: 500 })
@@ -235,7 +249,7 @@ export async function POST(request: NextRequest) {
         .select()
         .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    await logOrderCreated(order.id, wallet, { kind: 'merch', escrow_listing_id: escrowListingId })
+    await logOrderCreated(order.id, chainId, wallet, { kind: 'merch', escrow_listing_id: escrowListingId })
 
     return NextResponse.json(
         {
@@ -256,10 +270,19 @@ export async function GET(request: NextRequest) {
     const wallet = getSessionWallet(request)
     if (!wallet) return NextResponse.json({ error: 'not signed in' }, { status: 401 })
 
+    let chainId: number
+    try {
+        chainId = parseChainId(request)
+    } catch (err) {
+        if (err instanceof InvalidChainError) return NextResponse.json({ error: err.message }, { status: 400 })
+        throw err
+    }
+
     const { data, error } = await supabaseAdmin()
         .from('redemption_orders')
         .select('*, redeem_items(name, image_urls), redeem_item_variants(label)')
         .eq('buyer_wallet', wallet)
+        .eq('chain_id', chainId)
         .order('created_at', { ascending: false })
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

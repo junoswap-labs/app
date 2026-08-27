@@ -1,19 +1,23 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { useChainId } from 'wagmi'
 import { supabaseBrowser } from '@/lib/supabase/client'
 import type { AirdropCampaign, AirdropClaim } from '@/types/airdrop'
 
-/** The Browse Airdrops page's feed — public campaigns only. Creators see their own unlisted
- *  campaigns too, but only on /app/airdrop/manage (useMyAirdropCampaigns below). */
+/** The Browse Airdrops page's feed — public campaigns only, on the wallet's connected chain.
+ *  Creators see their own unlisted campaigns too, but only on /app/airdrop/manage
+ *  (useMyAirdropCampaigns below). */
 export function useAirdropCampaigns() {
+    const chainId = useChainId()
     return useQuery({
-        queryKey: ['airdrop-campaigns'],
+        queryKey: ['airdrop-campaigns', chainId],
         staleTime: 15_000,
         queryFn: async (): Promise<AirdropCampaign[]> => {
             const { data, error } = await supabaseBrowser()
                 .from('airdrop_campaigns')
                 .select('*')
+                .eq('chain_id', chainId)
                 .eq('visibility', 'public')
                 .order('created_at', { ascending: false })
             if (error) throw error
@@ -39,8 +43,9 @@ export function useAirdropCampaignByShareHash(shareHash: string | undefined) {
 }
 
 export function useAirdropCampaign(id: string | undefined) {
+    const chainId = useChainId()
     return useQuery({
-        queryKey: ['airdrop-campaigns', id],
+        queryKey: ['airdrop-campaigns', chainId, id],
         enabled: !!id,
         staleTime: 10_000,
         queryFn: async (): Promise<AirdropCampaign | null> => {
@@ -48,6 +53,7 @@ export function useAirdropCampaign(id: string | undefined) {
                 .from('airdrop_campaigns')
                 .select('*')
                 .eq('id', id as string)
+                .eq('chain_id', chainId)
                 .maybeSingle()
             if (error) throw error
             return data
@@ -60,8 +66,9 @@ export function useMyAirdropCampaigns(wallet: string | undefined) {
     // wagmi hands back a checksummed address — comparing them raw matches nothing, which is why
     // "My Airdrops" came back empty for the wallet that had just created a campaign.
     const creator = wallet?.toLowerCase()
+    const chainId = useChainId()
     return useQuery({
-        queryKey: ['airdrop-campaigns', 'creator', creator],
+        queryKey: ['airdrop-campaigns', 'creator', chainId, creator],
         enabled: !!creator,
         staleTime: 15_000,
         queryFn: async (): Promise<AirdropCampaign[]> => {
@@ -69,6 +76,7 @@ export function useMyAirdropCampaigns(wallet: string | undefined) {
                 .from('airdrop_campaigns')
                 .select('*')
                 .eq('creator_wallet', creator as string)
+                .eq('chain_id', chainId)
                 .order('created_at', { ascending: false })
             if (error) throw error
             return data
@@ -78,8 +86,9 @@ export function useMyAirdropCampaigns(wallet: string | undefined) {
 
 /** Recent claims for one campaign — also doubles as the public "live claim feed". */
 export function useAirdropClaims(campaignId: string | undefined) {
+    const chainId = useChainId()
     return useQuery({
-        queryKey: ['airdrop-claims', campaignId],
+        queryKey: ['airdrop-claims', chainId, campaignId],
         enabled: !!campaignId,
         staleTime: 5_000,
         queryFn: async (): Promise<AirdropClaim[]> => {
@@ -87,6 +96,7 @@ export function useAirdropClaims(campaignId: string | undefined) {
                 .from('airdrop_claims')
                 .select('*')
                 .eq('campaign_id', campaignId as string)
+                .eq('chain_id', chainId)
                 .order('claimed_at', { ascending: false })
                 .limit(50)
             if (error) throw error

@@ -5,7 +5,8 @@ import { getSessionWallet } from '@/lib/auth/session'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { airdropClaimDomain, AIRDROP_CLAIM_TYPES, type AirdropClaimAuthorization } from '@/lib/eip712'
 import type { AirdropClaimAttemptOutcome } from '@/types/airdrop'
-import { CONTRACT_ADDRESSES, DEFAULT_CHAIN_ID } from '@/config/contract-addresses'
+import { getContractAddresses } from '@/config/contract-addresses'
+import { parseChainId, InvalidChainError } from '@/lib/onchain/request-chain'
 
 const CAMPAIGN_ID_RE = /^0x[0-9a-fA-F]{64}$/
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
@@ -58,6 +59,7 @@ function haversineDistanceMeters(lat1: number, lng1: number, lat2: number, lng2:
 
 async function recordAttempt(params: {
     campaignId: string
+    chainId: number
     sessionWallet: string
     recipientWallet: string
     clientIp: string | null
@@ -65,6 +67,7 @@ async function recordAttempt(params: {
 }): Promise<void> {
     await supabaseAdmin().from('airdrop_claim_attempts').insert({
         campaign_id: params.campaignId,
+        chain_id: params.chainId,
         session_wallet: params.sessionWallet,
         recipient_wallet: params.recipientWallet,
         client_ip: params.clientIp,
@@ -93,12 +96,21 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'campaignId must be a bytes32 hex string' }, { status: 400 })
     }
 
+    let chainId: number
+    try {
+        chainId = parseChainId(request, body?.chainId)
+    } catch (err) {
+        if (err instanceof InvalidChainError) return NextResponse.json({ error: err.message }, { status: 400 })
+        throw err
+    }
+
     const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
 
     const { data: campaign, error: campaignError } = await supabaseAdmin()
         .from('airdrop_campaigns')
         .select('*')
         .eq('id', campaignId)
+        .eq('chain_id', chainId)
         .maybeSingle()
     if (campaignError) return NextResponse.json({ error: campaignError.message }, { status: 500 })
     if (!campaign) return NextResponse.json({ error: 'campaign not found' }, { status: 404 })
@@ -107,7 +119,7 @@ export async function POST(request: NextRequest) {
         campaign.status !== 'active' ||
         (campaign.expires_at && Date.now() > new Date(campaign.expires_at).getTime())
     ) {
-        await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, outcome: 'rejected_campaign_inactive' })
+        await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, chainId, outcome: 'rejected_campaign_inactive' })
         return NextResponse.json({ error: 'this campaign is no longer active' }, { status: 409 })
     }
 
@@ -115,12 +127,12 @@ export async function POST(request: NextRequest) {
         const lat = typeof gps?.lat === 'number' ? gps.lat : null
         const lng = typeof gps?.lng === 'number' ? gps.lng : null
         if (lat == null || lng == null || campaign.location_lat == null || campaign.location_lng == null || campaign.location_radius_m == null) {
-            await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, outcome: 'rejected_location' })
+            await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, chainId, outcome: 'rejected_location' })
             return NextResponse.json({ error: 'location is required to claim this campaign' }, { status: 403 })
         }
         const distance = haversineDistanceMeters(lat, lng, campaign.location_lat, campaign.location_lng)
         if (distance > campaign.location_radius_m) {
-            await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, outcome: 'rejected_location' })
+            await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, chainId, outcome: 'rejected_location' })
             return NextResponse.json({ error: "you are outside this campaign's claim area" }, { status: 403 })
         }
     }
@@ -130,12 +142,13 @@ export async function POST(request: NextRequest) {
             .from('airdrop_claim_attempts')
             .select('id')
             .eq('campaign_id', campaignId)
+            .eq('chain_id', chainId)
             .eq('client_ip', clientIp)
             .eq('outcome', 'ok')
             .maybeSingle()
         if (ipError) return NextResponse.json({ error: ipError.message }, { status: 500 })
         if (priorIp) {
-            await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, outcome: 'rejected_ip_dedupe' })
+            await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, chainId, outcome: 'rejected_ip_dedupe' })
             return NextResponse.json({ error: 'a claim has already been made from this network' }, { status: 409 })
         }
     }
@@ -144,19 +157,19 @@ export async function POST(request: NextRequest) {
         .from('airdrop_claim_attempts')
         .select('id')
         .eq('campaign_id', campaignId)
+        .eq('chain_id', chainId)
         .eq('session_wallet', wallet)
         .eq('outcome', 'ok')
         .maybeSingle()
     if (walletError) return NextResponse.json({ error: walletError.message }, { status: 500 })
     if (priorWalletAttempt) {
-        await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, outcome: 'rejected_already_claimed' })
+        await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, chainId, outcome: 'rejected_already_claimed' })
         return NextResponse.json({ error: 'you have already claimed this campaign' }, { status: 409 })
     }
 
     if (campaign.gas_mode === 'self') {
         const signerKey = process.env.AIRDROP_SIGNER_PRIVATE_KEY
-        const escrowAddress = CONTRACT_ADDRESSES.airdropEscrow
-        const chainId = DEFAULT_CHAIN_ID
+        const escrowAddress = getContractAddresses(chainId).airdropEscrow
         if (!signerKey || !escrowAddress) {
             return NextResponse.json({ error: 'the airdrop claim signer is not configured yet' }, { status: 500 })
         }
@@ -177,7 +190,7 @@ export async function POST(request: NextRequest) {
             message: auth,
         })
 
-        await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, outcome: 'ok' })
+        await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, chainId, outcome: 'ok' })
         return NextResponse.json({
             ok: true,
             mode: 'self',
@@ -199,12 +212,12 @@ export async function POST(request: NextRequest) {
         const relayRes = await fetch(`${relayerUrl}/relay-claim`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-relayer-secret': relayerSecret },
-            body: JSON.stringify({ campaignId, recipient }),
+            body: JSON.stringify({ campaignId, recipient, chainId }),
         })
         const relayBody = await relayRes.json().catch(() => null)
         if (!relayRes.ok) throw new Error(relayBody?.error ?? `relayer responded ${relayRes.status}`)
 
-        await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, outcome: 'ok' })
+        await recordAttempt({ campaignId, sessionWallet: wallet, recipientWallet: recipient, clientIp, chainId, outcome: 'ok' })
         return NextResponse.json({ ok: true, mode: 'relayer', txHash: relayBody.txHash, status: relayBody.status })
     } catch (err) {
         return NextResponse.json({ error: err instanceof Error ? err.message : 'relay failed' }, { status: 502 })

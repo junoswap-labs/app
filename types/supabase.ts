@@ -41,13 +41,14 @@ export interface Database {
                     fee: string | null
                     name: string | null
                     image_url: string | null
+                    chain_id: number
                     listed_at: string
                     filled_at: string | null
                     cancelled_at: string | null
                 }
                 Insert: Omit<
                     Database['public']['Tables']['nft_orders']['Row'],
-                    'status' | 'listed_at' | 'buyer' | 'fee' | 'filled_at' | 'cancelled_at'
+                    'status' | 'listed_at' | 'buyer' | 'fee' | 'filled_at' | 'cancelled_at' | 'chain_id'
                 > & {
                     status?: string
                     listed_at?: string
@@ -55,6 +56,7 @@ export interface Database {
                     fee?: string | null
                     filled_at?: string | null
                     cancelled_at?: string | null
+                    chain_id?: number
                 }
                 Update: Partial<Database['public']['Tables']['nft_orders']['Row']>
                 Relationships: []
@@ -69,12 +71,13 @@ export interface Database {
                     price: string
                     payment_token: string
                     status: 'active' | 'cancelled' | 'funded'
+                    chain_id: number
                     created_at: string
                 }
                 Insert: Omit<
                     Database['public']['Tables']['rwa_listings']['Row'],
-                    'status' | 'created_at'
-                > & { status?: string; created_at?: string }
+                    'status' | 'created_at' | 'chain_id'
+                > & { status?: string; created_at?: string; chain_id?: number }
                 Update: Partial<Database['public']['Tables']['rwa_listings']['Row']>
                 Relationships: []
             }
@@ -87,6 +90,7 @@ export interface Database {
                     amount: string
                     status: string
                     fee: string | null
+                    chain_id: number
                     funded_at: string
                     shipped_at: string | null
                     completed_at: string | null
@@ -94,12 +98,13 @@ export interface Database {
                 }
                 Insert: Omit<
                     Database['public']['Tables']['rwa_orders']['Row'],
-                    'fee' | 'shipped_at' | 'completed_at' | 'resolved_at'
+                    'fee' | 'shipped_at' | 'completed_at' | 'resolved_at' | 'chain_id'
                 > & {
                     fee?: string | null
                     shipped_at?: string | null
                     completed_at?: string | null
                     resolved_at?: string | null
+                    chain_id?: number
                 }
                 Update: Partial<Database['public']['Tables']['rwa_orders']['Row']>
                 Relationships: []
@@ -173,23 +178,26 @@ export interface Database {
                     redeem_start_at: string | null
                     redeem_end_at: string | null
                     status: 'draft' | 'published' | 'archived'
+                    chain_id: number
                     created_at: string
                 }
-                Insert: Omit<Database['public']['Tables']['redeem_items']['Row'], 'id' | 'status' | 'created_at' | 'thailand_only' | 'max_per_wallet'> & {
+                Insert: Omit<Database['public']['Tables']['redeem_items']['Row'], 'id' | 'status' | 'created_at' | 'thailand_only' | 'max_per_wallet' | 'chain_id'> & {
                     id?: number
                     status?: string
                     created_at?: string
                     thailand_only?: boolean
                     max_per_wallet?: number | null
+                    chain_id?: number
                 }
                 Update: Partial<Database['public']['Tables']['redeem_items']['Row']>
                 Relationships: []
             }
             redeem_item_variants: {
-                Row: { id: number; item_id: number; label: string; sku: string | null; stock: number | null; created_at: string }
-                Insert: Omit<Database['public']['Tables']['redeem_item_variants']['Row'], 'id' | 'created_at'> & {
+                Row: { id: number; item_id: number; label: string; sku: string | null; stock: number | null; chain_id: number; created_at: string }
+                Insert: Omit<Database['public']['Tables']['redeem_item_variants']['Row'], 'id' | 'created_at' | 'chain_id'> & {
                     id?: number
                     created_at?: string
+                    chain_id?: number
                 }
                 Update: Partial<Database['public']['Tables']['redeem_item_variants']['Row']>
                 Relationships: [
@@ -229,6 +237,7 @@ export interface Database {
                     dispute_evidence_urls: string[] | null
                     dispute_reported_by: string | null
                     dispute_reported_at: string | null
+                    chain_id: number
                 }
                 Insert: Omit<
                     Database['public']['Tables']['redemption_orders']['Row'],
@@ -248,8 +257,10 @@ export interface Database {
                     | 'dispute_evidence_urls'
                     | 'dispute_reported_by'
                     | 'dispute_reported_at'
+                    | 'chain_id'
                 > & {
                     id?: string
+                    chain_id?: number
                     status?: string
                     created_at?: string
                     updated_at?: string
@@ -285,8 +296,8 @@ export interface Database {
                 ]
             }
             sync_state: {
-                Row: { contract: string; last_block: string; updated_at: string }
-                Insert: { contract: string; last_block: string; updated_at?: string }
+                Row: { chain_id: number; contract: string; last_block: string; updated_at: string }
+                Insert: { chain_id: number; contract: string; last_block: string; updated_at?: string }
                 Update: Partial<Database['public']['Tables']['sync_state']['Row']>
                 Relationships: []
             }
@@ -332,10 +343,12 @@ export interface Database {
                     user_agent: string | null
                     tg_update_id: string | null
                     metadata: Record<string, unknown> | null
+                    chain_id: number | null
                 }
-                Insert: Omit<Database['public']['Tables']['audit_logs']['Row'], 'id' | 'created_at'> & {
+                Insert: Omit<Database['public']['Tables']['audit_logs']['Row'], 'id' | 'created_at' | 'chain_id'> & {
                     id?: string
                     created_at?: string
+                    chain_id?: number | null
                 }
                 Update: Partial<Database['public']['Tables']['audit_logs']['Row']>
                 Relationships: []
@@ -371,10 +384,12 @@ export interface Database {
                     cover_image_url: string | null
                     status: 'active' | 'closed' | 'reclaimed'
                     tx_hash: string | null
+                    chain_id: number
                     created_at: string
                 }
                 Insert: Omit<
                     Database['public']['Tables']['airdrop_campaigns']['Row'],
+                    | 'chain_id'
                     | 'token_symbol'
                     | 'token_decimals'
                     | 'fixed_amount'
@@ -400,6 +415,7 @@ export interface Database {
                     | 'tx_hash'
                     | 'created_at'
                 > & {
+                    chain_id?: number
                     token_symbol?: string | null
                     token_decimals?: number | null
                     fixed_amount?: string | null
@@ -437,11 +453,13 @@ export interface Database {
                     tx_hash: string
                     log_index: number
                     submitter: 'self' | 'relayer'
+                    chain_id: number
                     claimed_at: string
                 }
-                Insert: Omit<Database['public']['Tables']['airdrop_claims']['Row'], 'id' | 'claimed_at'> & {
+                Insert: Omit<Database['public']['Tables']['airdrop_claims']['Row'], 'id' | 'claimed_at' | 'chain_id'> & {
                     id?: string
                     claimed_at?: string
+                    chain_id?: number
                 }
                 Update: Partial<Database['public']['Tables']['airdrop_claims']['Row']>
                 Relationships: [
@@ -462,11 +480,13 @@ export interface Database {
                     recipient_wallet: string | null
                     client_ip: string | null
                     outcome: string
+                    chain_id: number
                     attempted_at: string
                 }
-                Insert: Omit<Database['public']['Tables']['airdrop_claim_attempts']['Row'], 'id' | 'attempted_at'> & {
+                Insert: Omit<Database['public']['Tables']['airdrop_claim_attempts']['Row'], 'id' | 'attempted_at' | 'chain_id'> & {
                     id?: string
                     attempted_at?: string
+                    chain_id?: number
                 }
                 Update: Partial<Database['public']['Tables']['airdrop_claim_attempts']['Row']>
                 Relationships: [
@@ -486,11 +506,13 @@ export interface Database {
                     tx_hash: string
                     log_index: number
                     amount: string
+                    chain_id: number
                     reimbursed_at: string
                 }
-                Insert: Omit<Database['public']['Tables']['airdrop_gas_reimbursements']['Row'], 'id' | 'reimbursed_at'> & {
+                Insert: Omit<Database['public']['Tables']['airdrop_gas_reimbursements']['Row'], 'id' | 'reimbursed_at' | 'chain_id'> & {
                     id?: string
                     reimbursed_at?: string
+                    chain_id?: number
                 }
                 Update: Partial<Database['public']['Tables']['airdrop_gas_reimbursements']['Row']>
                 Relationships: [

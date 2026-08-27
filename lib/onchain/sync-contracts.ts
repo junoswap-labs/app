@@ -1,5 +1,5 @@
 import type { Address } from 'viem'
-import { CONTRACT_ADDRESSES, DEPLOY_BLOCKS } from '@/config/contract-addresses'
+import { getContractAddresses, getDeployBlocks } from '@/config/contract-addresses'
 import { nftMarketplaceEventsAbi } from '@/lib/abis/nft-marketplace'
 import { rwaEscrowEventsAbi } from '@/lib/abis/rwa-escrow'
 import { redeemNftSettlementEventsAbi } from '@/lib/abis/redeem-nft-settlement'
@@ -14,6 +14,7 @@ import type { SyncEventHandler } from '@/services/sync/handlers'
 
 export interface SyncTarget {
     contract: 'nft_marketplace' | 'rwa_escrow' | 'redeem_nft_settlement' | 'redeem_rwa_escrow' | 'airdrop_escrow'
+    chainId: number
     address: Address
     abi:
         | typeof nftMarketplaceEventsAbi
@@ -29,40 +30,43 @@ export interface SyncTarget {
     deployBlock: bigint
 }
 
-/** Contracts not yet deployed (no NEXT_PUBLIC_*_ADDRESS set) are skipped, not errored on. */
-export function getSyncTargets(): SyncTarget[] {
+/** Every deployed contract to sync on one chain. Contracts not deployed on that chain (no address
+ *  in config/contract-addresses.ts) are skipped, not errored on. */
+export function getSyncTargets(chainId: number): SyncTarget[] {
+    const addresses = getContractAddresses(chainId)
+    const deployBlocks = getDeployBlocks(chainId)
     const targets: SyncTarget[] = []
 
-    const nftAddress = CONTRACT_ADDRESSES.nftMarketplace
-    if (nftAddress) {
+    if (addresses.nftMarketplace) {
         targets.push({
             contract: 'nft_marketplace',
-            address: nftAddress,
+            chainId,
+            address: addresses.nftMarketplace,
             abi: nftMarketplaceEventsAbi,
             handlers: marketplaceEventHandlers,
-            deployBlock: DEPLOY_BLOCKS.nftMarketplace ?? 0n,
+            deployBlock: deployBlocks.nftMarketplace ?? 0n,
         })
     }
 
-    const rwaAddress = CONTRACT_ADDRESSES.rwaEscrow
-    if (rwaAddress) {
+    if (addresses.rwaEscrow) {
         targets.push({
             contract: 'rwa_escrow',
-            address: rwaAddress,
+            chainId,
+            address: addresses.rwaEscrow,
             abi: rwaEscrowEventsAbi,
             handlers: marketplaceEventHandlers,
-            deployBlock: DEPLOY_BLOCKS.rwaEscrow ?? 0n,
+            deployBlock: deployBlocks.rwaEscrow ?? 0n,
         })
     }
 
-    const redeemNftAddress = CONTRACT_ADDRESSES.redeemNftSettlement
-    if (redeemNftAddress) {
+    if (addresses.redeemNftSettlement) {
         targets.push({
             contract: 'redeem_nft_settlement',
-            address: redeemNftAddress,
+            chainId,
+            address: addresses.redeemNftSettlement,
             abi: redeemNftSettlementEventsAbi,
             handlers: redeemNftEventHandlers,
-            deployBlock: DEPLOY_BLOCKS.redeemNftSettlement ?? 0n,
+            deployBlock: deployBlocks.redeemNftSettlement ?? 0n,
         })
     }
 
@@ -70,25 +74,25 @@ export function getSyncTargets(): SyncTarget[] {
     // 10% platform fee — and a different feeCollector than the Marketplace instance above); see
     // supabase/migrations/0008_redeem_schema.sql's header comment for why merch reuses this
     // contract's code instead of a bespoke escrow.
-    const redeemRwaAddress = CONTRACT_ADDRESSES.redeemRwaEscrow
-    if (redeemRwaAddress) {
+    if (addresses.redeemRwaEscrow) {
         targets.push({
             contract: 'redeem_rwa_escrow',
-            address: redeemRwaAddress,
+            chainId,
+            address: addresses.redeemRwaEscrow,
             abi: rwaEscrowEventsAbi,
             handlers: redeemRwaEventHandlers,
-            deployBlock: DEPLOY_BLOCKS.redeemRwaEscrow ?? 0n,
+            deployBlock: deployBlocks.redeemRwaEscrow ?? 0n,
         })
     }
 
-    const airdropAddress = CONTRACT_ADDRESSES.airdropEscrow
-    if (airdropAddress) {
+    if (addresses.airdropEscrow) {
         targets.push({
             contract: 'airdrop_escrow',
-            address: airdropAddress,
+            chainId,
+            address: addresses.airdropEscrow,
             abi: airdropEscrowEventsAbi,
             handlers: airdropEventHandlers,
-            deployBlock: DEPLOY_BLOCKS.airdropEscrow ?? 0n,
+            deployBlock: deployBlocks.airdropEscrow ?? 0n,
         })
     }
 

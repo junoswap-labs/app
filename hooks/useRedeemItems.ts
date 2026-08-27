@@ -1,19 +1,22 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { useChainId } from 'wagmi'
 import { supabaseBrowser } from '@/lib/supabase/client'
 import type { RedeemItem, RedeemKind, RedeemTier } from '@/types/redeem'
 
 /** Published catalog only — reads straight from Supabase (public-read RLS policy, see
  *  supabase/migrations/0008_redeem_schema.sql), same convention as useRwaListings.ts. */
 export function useRedeemItems(filter?: { tier?: RedeemTier; kind?: RedeemKind }) {
+    const chainId = useChainId()
     const query = useQuery({
-        queryKey: ['redeem-items', filter?.tier, filter?.kind],
+        queryKey: ['redeem-items', chainId, filter?.tier, filter?.kind],
         staleTime: 15_000,
         queryFn: async (): Promise<RedeemItem[]> => {
             let q = supabaseBrowser()
                 .from('redeem_items')
                 .select('*, redeem_item_variants(*)')
+                .eq('chain_id', chainId)
                 .eq('status', 'published')
                 .order('created_at', { ascending: false })
             if (filter?.tier) q = q.eq('tier', filter.tier)
@@ -31,14 +34,16 @@ export function useRedeemItems(filter?: { tier?: RedeemTier; kind?: RedeemKind }
 
 export function useRedeemItem(id: number | string | undefined) {
     const numericId = id != null ? Number(id) : undefined
+    const chainId = useChainId()
     return useQuery({
-        queryKey: ['redeem-item', numericId],
+        queryKey: ['redeem-item', chainId, numericId],
         enabled: numericId != null && Number.isFinite(numericId),
         queryFn: async (): Promise<RedeemItem | null> => {
             const { data, error } = await supabaseBrowser()
                 .from('redeem_items')
                 .select('*, redeem_item_variants(*)')
                 .eq('id', numericId as number)
+                .eq('chain_id', chainId)
                 .eq('status', 'published')
                 .maybeSingle()
             if (error) throw error
@@ -54,10 +59,11 @@ export function useRedeemItem(id: number | string | undefined) {
 /** The connected wallet's own listings (including drafts) — needs the Route Handler, not the
  *  public-read policy, since drafts aren't publicly visible. */
 export function useMyRedeemItems() {
+    const chainId = useChainId()
     return useQuery({
-        queryKey: ['redeem-items', 'mine'],
+        queryKey: ['redeem-items', 'mine', chainId],
         queryFn: async (): Promise<RedeemItem[]> => {
-            const res = await fetch('/api/redeem/items')
+            const res = await fetch(`/api/redeem/items?chainId=${chainId}`)
             if (!res.ok) throw new Error(`failed to load your listings: ${res.status}`)
             return res.json()
         },

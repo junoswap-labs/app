@@ -38,22 +38,36 @@ const ADDRESSES_BY_CHAIN: Record<number, ContractAddressBag> = {
     },
 }
 
-export const DEFAULT_CHAIN_ID = 25925
+/** Every chain this deployment serves. The sync poller sweeps all of them; Route Handlers
+ *  validate their `?chainId=` against this list. Nothing is hard-bound to one chain — the
+ *  client resolves off the wallet (useContractAddresses), the server off the request/this list. */
+export const SUPPORTED_CHAIN_IDS: number[] = Object.keys(ADDRESSES_BY_CHAIN).map(Number)
 
-// Sync poller's first block to scan per contract when sync_state has no row yet. Update alongside
-// the matching address above when redeploying — kept in the same file so the two can't drift.
-export const DEPLOY_BLOCKS: Partial<Record<keyof ContractAddressBag, bigint>> = {
-    nftMarketplace: 32881939n,
-    rwaEscrow: 32881946n,
-    redeemNftSettlement: 32881960n,
-    redeemRwaEscrow: 32920373n,
-    airdropEscrow: 32861834n,
+export function isSupportedChainId(chainId: number): boolean {
+    return SUPPORTED_CHAIN_IDS.includes(chainId)
+}
+
+// Sync poller's first block to scan per contract when sync_state has no row yet, keyed by chain.
+// Update alongside the matching address above when redeploying — kept in the same file so the two
+// can't drift. A contract with no entry falls back to 0n (full-chain rescan) — avoid that on
+// KUB mainnet, whose RPC rejects wide getLogs ranges.
+export const DEPLOY_BLOCKS_BY_CHAIN: Record<number, Partial<Record<keyof ContractAddressBag, bigint>>> = {
+    25925: {
+        nftMarketplace: 32881939n,
+        rwaEscrow: 32881946n,
+        redeemNftSettlement: 32881960n,
+        redeemRwaEscrow: 32920373n,
+        airdropEscrow: 32861834n,
+    },
+    96: {
+        airdropEscrow: 34734515n,
+    },
 }
 
 export function getContractAddresses(chainId: number): ContractAddressBag {
     return ADDRESSES_BY_CHAIN[chainId] ?? {}
 }
 
-// Server-side default (Route Handlers, sync poller). Client code should use useContractAddresses()
-// instead, which resolves off the wallet's connected chain via wagmi's useChainId().
-export const CONTRACT_ADDRESSES: ContractAddressBag = getContractAddresses(DEFAULT_CHAIN_ID)
+export function getDeployBlocks(chainId: number): Partial<Record<keyof ContractAddressBag, bigint>> {
+    return DEPLOY_BLOCKS_BY_CHAIN[chainId] ?? {}
+}

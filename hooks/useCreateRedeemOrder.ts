@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useAccount, usePublicClient, useWriteContract } from 'wagmi'
+import { useAccount, useChainId, usePublicClient, useWriteContract } from 'wagmi'
 import type { Address } from 'viem'
 import { junoPtsAbi } from '@/lib/abis/juno-pts'
 import { redeemNftSettlementAbi } from '@/lib/abis/redeem-nft-settlement'
@@ -51,6 +51,7 @@ interface MerchEscrowResponse {
 export function useCreateRedeemOrder() {
     const { redeemRwaEscrow: REDEEM_RWA_ESCROW_ADDRESS, junoPts: junoPtsAddress } = useContractAddresses()
     const { address } = useAccount()
+    const chainId = useChainId()
     const { writeContractAsync } = useWriteContract()
     const write = useSimulatedWrite()
     const publicClient = usePublicClient()
@@ -65,7 +66,7 @@ export function useCreateRedeemOrder() {
             const res = await fetch('/api/redeem/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ item_id: input.itemId, variant_id: input.variantId, shipping: input.shipping }),
+                body: JSON.stringify({ item_id: input.itemId, variant_id: input.variantId, shipping: input.shipping, chainId }),
             })
             if (!res.ok) {
                 const body = await res.json().catch(() => null)

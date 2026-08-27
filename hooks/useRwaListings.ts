@@ -73,23 +73,25 @@ function mergeRwaListing(listing: RwaListingRow, order: RwaOrderRow | undefined,
 }
 
 function useRwaData() {
+    const chainId = useChainId()
     const listingsQuery = useQuery({
-        queryKey: ['rwa-listings'],
+        queryKey: ['rwa-listings', chainId],
         staleTime: 15_000,
         queryFn: async (): Promise<RwaListingRow[]> => {
             const { data, error } = await supabaseBrowser()
                 .from('rwa_listings')
                 .select('*')
+                .eq('chain_id', chainId)
                 .order('created_at', { ascending: false })
             if (error) throw error
             return data
         },
     })
     const ordersQuery = useQuery({
-        queryKey: ['rwa-orders'],
+        queryKey: ['rwa-orders', chainId],
         staleTime: 15_000,
         queryFn: async (): Promise<RwaOrderRow[]> => {
-            const { data, error } = await supabaseBrowser().from('rwa_orders').select('*')
+            const { data, error } = await supabaseBrowser().from('rwa_orders').select('*').eq('chain_id', chainId)
             if (error) throw error
             return data
         },
