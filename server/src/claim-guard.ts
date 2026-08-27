@@ -14,13 +14,13 @@ type State = { done: boolean; at: number }
 
 const seen = new Map<string, State>()
 
-function key(campaignId: string, recipient: string) {
-    return `${campaignId.toLowerCase()}:${recipient.toLowerCase()}`
+function key(chainId: number, campaignId: string, recipient: string) {
+    return `${chainId}:${campaignId.toLowerCase()}:${recipient.toLowerCase()}`
 }
 
 /** Returns null when the caller may proceed, or the reason to reject with. */
-export function claim(campaignId: string, recipient: string, now = Date.now()): 'already-relayed' | 'in-flight' | null {
-    const k = key(campaignId, recipient)
+export function claim(chainId: number, campaignId: string, recipient: string, now = Date.now()): 'already-relayed' | 'in-flight' | null {
+    const k = key(chainId, campaignId, recipient)
     const prev = seen.get(k)
     if (prev?.done) return 'already-relayed'
     // An in-flight entry that's older than the window is treated as abandoned (process-level crash
@@ -31,8 +31,8 @@ export function claim(campaignId: string, recipient: string, now = Date.now()): 
 }
 
 /** Call after the relay settles: a confirmed claim is blocked forever, a failure is retryable. */
-export function settle(campaignId: string, recipient: string, confirmed: boolean, now = Date.now()) {
-    const k = key(campaignId, recipient)
+export function settle(chainId: number, campaignId: string, recipient: string, confirmed: boolean, now = Date.now()) {
+    const k = key(chainId, campaignId, recipient)
     if (confirmed) seen.set(k, { done: true, at: now })
     else seen.delete(k)
 }

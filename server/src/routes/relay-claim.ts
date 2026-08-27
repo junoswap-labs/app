@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { timingSafeEqual } from 'node:crypto'
 import { BaseError, ContractFunctionRevertedError, isAddress } from 'viem'
-import { CLAIM_FOR_GAS_UNITS, account, airdropEscrowAddress, publicClient, requireEnv, walletClient } from '../chain'
+import { CLAIM_FOR_GAS_UNITS, account, getChainCtx, requireEnv, supportedChainIds } from '../chain'
 import { claimForAbi, getCampaignAbi } from '../abi'
 import { enqueue } from '../queue'
 import { claim, settle } from '../claim-guard'
@@ -36,21 +36,27 @@ relayClaim.post('/relay-claim', async (c) => {
     const body = await c.req.json().catch(() => null)
     const campaignId = body?.campaignId
     const recipient = body?.recipient
+    const chainId = Number(body?.chainId)
     if (typeof campaignId !== 'string' || !BYTES32_RE.test(campaignId)) {
         return c.json({ error: 'campaignId must be a bytes32 hex string' }, 400)
     }
     if (typeof recipient !== 'string' || !isAddress(recipient)) {
         return c.json({ error: 'recipient must be a valid address' }, 400)
     }
+    const ctx = Number.isInteger(chainId) ? getChainCtx(chainId) : undefined
+    if (!ctx) {
+        return c.json({ error: `unsupported chainId: ${String(body?.chainId)} (relayer serves ${supportedChainIds.join(', ')})` }, 400)
+    }
+    const { publicClient, walletClient, escrowAddress } = ctx
 
-    const blocked = claim(campaignId, recipient)
+    const blocked = claim(chainId, campaignId, recipient)
     if (blocked) {
         return c.json({ error: blocked === 'already-relayed' ? 'this claim was already relayed' : 'a relay for this claim is already in flight' }, 409)
     }
 
     try {
         const campaign = await publicClient.readContract({
-            address: airdropEscrowAddress,
+            address: escrowAddress,
             abi: getCampaignAbi,
             functionName: 'getCampaign',
             args: [campaignId as `0x${string}`],
@@ -59,7 +65,7 @@ relayClaim.post('/relay-claim', async (c) => {
         // gasDeposit is 0 — indistinguishable from a drained campaign unless checked separately.
         // In practice it means this service is pointed at a different AirdropEscrow than the app.
         if (campaign.creator === '0x0000000000000000000000000000000000000000') {
-            settle(campaignId, recipient, false)
+            settle(chainId, campaignId, recipient, false)
             return c.json(
                 { error: 'campaign not found on this AirdropEscrow deployment — the relayer is pointed at a different contract address than the app' },
                 404
@@ -68,7 +74,7 @@ relayClaim.post('/relay-claim', async (c) => {
 
         const remainingGasDeposit = campaign.gasDeposit - campaign.gasSpent
         if (remainingGasDeposit <= 0n) {
-            settle(campaignId, recipient, false)
+            settle(chainId, campaignId, recipient, false)
             return c.json({ error: 'this campaign has no gas deposit left to cover the relay — ask the claimant to pay their own gas' }, 409)
         }
 
@@ -80,19 +86,19 @@ relayClaim.post('/relay-claim', async (c) => {
         // turns that into a free 409 instead.
         const { request } = await publicClient.simulateContract({
             account,
-            address: airdropEscrowAddress,
+            address: escrowAddress,
             abi: claimForAbi,
             functionName: 'claimFor',
             args: [campaignId as `0x${string}`, recipient, gasReimbursement],
         })
 
-        const hash = await enqueue((nonce) => walletClient.writeContract({ ...request, nonce }))
+        const hash = await enqueue(chainId, (nonce) => walletClient.writeContract({ ...request, nonce }))
         const receipt = await publicClient.waitForTransactionReceipt({ hash })
         const confirmed = receipt.status === 'success'
-        settle(campaignId, recipient, confirmed)
+        settle(chainId, campaignId, recipient, confirmed)
         return c.json({ txHash: hash, status: confirmed ? 'confirmed' : 'failed' })
     } catch (err) {
-        settle(campaignId, recipient, false)
+        settle(chainId, campaignId, recipient, false)
         // A revert surfaced by the simulation is the caller's problem (already claimed, campaign
         // ended, bad signature) — 409, not 500, and without viem's multi-paragraph dump.
         if (err instanceof BaseError) {
