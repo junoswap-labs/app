@@ -7,10 +7,10 @@ import { airdropClaimDomain, AIRDROP_CLAIM_TYPES, type AirdropClaimAuthorization
 import type { AirdropClaimAttemptOutcome } from '@/types/airdrop'
 import { getContractAddresses } from '@/config/contract-addresses'
 import { parseChainId, InvalidChainError } from '@/lib/onchain/request-chain'
+import { haversineDistanceMeters } from '@/lib/geo'
 
 const CAMPAIGN_ID_RE = /^0x[0-9a-fA-F]{64}$/
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
-const EARTH_RADIUS_M = 6371000
 
 // Uniform-ish random bigint in [0, spanExclusive) — extra bytes over the span's own width keep the
 // modulo bias negligible; the on-chain _computeRandomAmount() also uses a plain `% span`, so this
@@ -47,14 +47,6 @@ function computeSelfClaimAmount(campaign: {
     const upperBound = maxAmount < remaining - minAmount ? maxAmount : remaining - minAmount
     const span = upperBound - minAmount + 1n
     return minAmount + randomBigInt(span)
-}
-
-function haversineDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-    const toRad = (deg: number) => (deg * Math.PI) / 180
-    const dLat = toRad(lat2 - lat1)
-    const dLng = toRad(lng2 - lng1)
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
-    return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(a))
 }
 
 async function recordAttempt(params: {

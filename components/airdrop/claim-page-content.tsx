@@ -124,7 +124,7 @@ export function AirdropClaimPageContent({ campaignId }: { campaignId: string }) 
                         <img
                             src={campaign.cover_image_url}
                             alt={campaign.title ?? 'Airdrop'}
-                            className="aspect-[2/1] w-full rounded-xl border object-cover"
+                            className="mx-auto max-h-96 w-auto max-w-full rounded-xl border object-contain"
                         />
                     )}
 
@@ -237,7 +237,12 @@ export function AirdropClaimPageContent({ campaignId }: { campaignId: string }) 
                                     </div>
 
                                     {campaign.location_restricted && (
-                                        <LocationGate radiusM={campaign.location_radius_m ?? 0} onLocation={(lat, lng) => setGps({ lat, lng })} />
+                                        <LocationGate
+                                            radiusM={campaign.location_radius_m ?? 0}
+                                            targetLat={campaign.location_lat}
+                                            targetLng={campaign.location_lng}
+                                            onLocation={(lat, lng) => setGps({ lat, lng })}
+                                        />
                                     )}
 
                                     <Button
