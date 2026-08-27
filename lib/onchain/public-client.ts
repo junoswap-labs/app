@@ -1,24 +1,77 @@
-import { createPublicClient, http } from 'viem'
+import { createPublicClient, createWalletClient, http } from 'viem'
+import type { Chain } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
 import type { Address } from 'viem'
-import { bitkub, kubTestnet } from '@/lib/wagmi'
+import { supportedChains } from '@/lib/wagmi'
+import { getContractAddresses } from '@/config/contract-addresses'
 
-// Server-side-only viem client (Route Handlers, sync poller) — reads chain state directly,
-// independent of the browser's wagmi connection. KUB_RPC_URL is server-only (see .env.example);
-// falls back to the public RPC only if unset, matching the client-side default in lib/wagmi.ts.
-const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? bitkub.id)
-const chain = chainId === kubTestnet.id ? kubTestnet : bitkub
-const rpcUrl = process.env.KUB_RPC_URL || chain.rpcUrls.default.http[0]
+// Server-side-only viem clients (Route Handlers, sync poller) — read chain state directly,
+// independent of the browser's wagmi connection. Everything here is chain-parameterised: nothing
+// on the server is bound to a single chain, callers pass the chainId they resolved from the
+// request (?chainId=) or from the poller's SUPPORTED_CHAIN_IDS sweep.
 
-let client: ReturnType<typeof createPublicClient> | null = null
+function chainFor(chainId: number): Chain {
+    const chain = supportedChains.find((c) => c.id === chainId)
+    if (!chain) throw new Error(`unsupported chainId: ${chainId}`)
+    return chain
+}
 
-export function serverPublicClient() {
-    if (client) return client
-    client = createPublicClient({ chain, transport: http(rpcUrl, { batch: true }) })
+const publicClients = new Map<number, ReturnType<typeof createPublicClient>>()
+
+export function serverPublicClient(chainId: number) {
+    const cached = publicClients.get(chainId)
+    if (cached) return cached
+    const chain = chainFor(chainId)
+    const client = createPublicClient({
+        chain,
+        transport: http(chain.rpcUrls.default.http[0], { batch: true }),
+    })
+    publicClients.set(chainId, client)
     return client
 }
 
-export function permissionRegistryAddress(): Address {
-    const addr = process.env.NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS
-    if (!addr) throw new Error('NEXT_PUBLIC_PERMISSION_REGISTRY_ADDRESS is not set')
-    return addr as Address
+let operatorAccount: ReturnType<typeof privateKeyToAccount> | null = null
+
+function redeemOperatorAccount() {
+    if (operatorAccount) return operatorAccount
+    const key = process.env.REDEEM_OPERATOR_PRIVATE_KEY
+    if (!key) throw new Error('REDEEM_OPERATOR_PRIVATE_KEY is not configured')
+    operatorAccount = privateKeyToAccount(key as `0x${string}`)
+    return operatorAccount
+}
+
+/**
+ * Signs/broadcasts as the Redeem operator wallet — holds TOKEN_MANAGER_ROLE on the Redeem RwaEscrow
+ * deployment only (see RwaEscrow.sol's header comment), so this is safe to use for auto-allowing a
+ * payment token from a Route Handler without also handing that hot wallet pause/fee/arbitrator power.
+ */
+export function redeemOperatorWalletClient(chainId: number) {
+    const chain = chainFor(chainId)
+    return createWalletClient({
+        account: redeemOperatorAccount(),
+        chain,
+        transport: http(chain.rpcUrls.default.http[0]),
+    })
+}
+
+function requireAddress(chainId: number, key: keyof ReturnType<typeof getContractAddresses>, label: string): Address {
+    const addr = getContractAddresses(chainId)[key]
+    if (!addr) throw new Error(`${label} address is not configured for chainId ${chainId}`)
+    return addr
+}
+
+export function permissionRegistryAddress(chainId: number): Address {
+    return requireAddress(chainId, 'permissionRegistry', 'permissionRegistry')
+}
+
+export function junoPtsAddress(chainId: number): Address {
+    return requireAddress(chainId, 'junoPts', 'junoPts')
+}
+
+export function redeemNftSettlementAddress(chainId: number): Address {
+    return requireAddress(chainId, 'redeemNftSettlement', 'redeemNftSettlement')
+}
+
+export function redeemRwaEscrowAddress(chainId: number): Address {
+    return requireAddress(chainId, 'redeemRwaEscrow', 'redeemRwaEscrow')
 }

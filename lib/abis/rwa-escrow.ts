@@ -72,13 +72,20 @@ export const rwaEscrowEventsAbi = [
     },
 ] as const
 
-// The three per-deployment deadlines (constructor params, not hardcoded — see RwaEscrow.sol) —
-// read once and cache (lib/server-cache.ts) rather than re-reading on every ship-deadline cron run.
+// The per-deployment deadlines (constructor params, not hardcoded — see RwaEscrow.sol) — read once
+// and cache (lib/server-cache.ts) rather than re-reading on every ship-deadline cron run.
 export const rwaEscrowDeadlinesAbi = [
     { type: 'function', name: 'SHIP_DEADLINE', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
     {
         type: 'function',
         name: 'AUTO_RELEASE_DEADLINE',
+        stateMutability: 'view',
+        inputs: [],
+        outputs: [{ type: 'uint256' }],
+    },
+    {
+        type: 'function',
+        name: 'EXTENSION_PERIOD',
         stateMutability: 'view',
         inputs: [],
         outputs: [{ type: 'uint256' }],
@@ -148,6 +155,34 @@ export const rwaEscrowAbi = [
     },
     {
         type: 'function',
+        name: 'extendAutoRelease',
+        stateMutability: 'nonpayable',
+        inputs: [{ name: 'listingId', type: 'bytes32' }],
+        outputs: [],
+    },
+    {
+        type: 'function',
+        name: 'autoReleaseExtension',
+        stateMutability: 'view',
+        inputs: [{ name: '', type: 'bytes32' }],
+        outputs: [{ type: 'uint256' }],
+    },
+    {
+        // Not in rwaEscrowEventsAbi (the poller's getLogs filter) — the extension is read live via
+        // autoReleaseExtension() above rather than mirrored into a DB column, so it doesn't need a
+        // sync handler. Kept here only so a frontend hook could watch it if ever useful.
+        type: 'event',
+        name: 'AutoReleaseExtended',
+        inputs: [
+            { name: 'listingId', type: 'bytes32', indexed: true },
+            { name: 'buyer', type: 'address', indexed: true },
+            { name: 'extendedBy', type: 'uint256', indexed: false },
+            { name: 'newDeadline', type: 'uint256', indexed: false },
+        ],
+        anonymous: false,
+    },
+    {
+        type: 'function',
         name: 'orders',
         stateMutability: 'view',
         inputs: [{ name: '', type: 'bytes32' }],
@@ -169,6 +204,7 @@ export const rwaEscrowAbi = [
         outputs: [{ type: 'bool' }],
     },
     { type: 'function', name: 'ARBITRATOR_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
+    { type: 'function', name: 'TOKEN_MANAGER_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
     {
         type: 'function',
         name: 'hasRole',
@@ -178,6 +214,16 @@ export const rwaEscrowAbi = [
             { name: 'account', type: 'address' },
         ],
         outputs: [{ type: 'bool' }],
+    },
+    {
+        type: 'function',
+        name: 'setAllowedPaymentToken',
+        stateMutability: 'nonpayable',
+        inputs: [
+            { name: 'token', type: 'address' },
+            { name: 'allowed', type: 'bool' },
+        ],
+        outputs: [],
     },
 ] as const
 
@@ -193,6 +239,7 @@ export const rwaEscrowAdminAbi = [
         outputs: [{ type: 'bytes32' }],
     },
     { type: 'function', name: 'ARBITRATOR_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
+    { type: 'function', name: 'TOKEN_MANAGER_ROLE', stateMutability: 'view', inputs: [], outputs: [{ type: 'bytes32' }] },
     {
         type: 'function',
         name: 'hasRole',

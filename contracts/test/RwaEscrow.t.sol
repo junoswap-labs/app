@@ -19,7 +19,7 @@ contract RwaEscrowTest is Test {
     bytes32 internal constant LISTING = keccak256("listing-1");
 
     function setUp() public {
-        escrow = new RwaEscrow(FEE_BPS, feeCollector, 7 days, 3 days, 10 days);
+        escrow = new RwaEscrow(FEE_BPS, feeCollector, 7 days, 3 days, 10 days, 7 days);
         pay = new MockERC20();
         escrow.setAllowedPaymentToken(address(pay), true);
         escrow.grantRole(escrow.ARBITRATOR_ROLE(), arbitrator);
@@ -247,7 +247,7 @@ contract RwaEscrowTest is Test {
 
     function testConstructorRejectsDisputeGraceAfterAutoRelease() public {
         vm.expectRevert("dispute grace must end before auto-release");
-        new RwaEscrow(FEE_BPS, feeCollector, 7 days, 10 days, 10 days);
+        new RwaEscrow(FEE_BPS, feeCollector, 7 days, 10 days, 10 days, 7 days);
     }
 
     function testClaimShipmentTimeoutBeforeDeadlineReverts() public {
@@ -282,6 +282,50 @@ contract RwaEscrowTest is Test {
         vm.warp(block.timestamp + escrow.AUTO_RELEASE_DEADLINE() + 1);
         vm.expectRevert("not shipped");
         escrow.claimShipmentTimeout(LISTING);
+    }
+
+    function testExtendAutoReleasePushesOutClaimDeadline() public {
+        _fund();
+        vm.prank(seller);
+        escrow.markShipped(LISTING);
+
+        vm.warp(block.timestamp + escrow.AUTO_RELEASE_DEADLINE() + 1);
+        vm.prank(buyer);
+        escrow.extendAutoRelease(LISTING);
+
+        // The original deadline has passed, but the extension pushes it out — not yet claimable.
+        vm.expectRevert("auto-release deadline not passed");
+        escrow.claimShipmentTimeout(LISTING);
+
+        vm.warp(block.timestamp + escrow.EXTENSION_PERIOD());
+        escrow.claimShipmentTimeout(LISTING);
+        assertEq(uint256(_status(LISTING)), uint256(RwaEscrow.Status.Completed));
+    }
+
+    function testExtendAutoReleaseOnlyBuyer() public {
+        _fund();
+        vm.prank(seller);
+        escrow.markShipped(LISTING);
+        vm.expectRevert("not buyer");
+        escrow.extendAutoRelease(LISTING);
+    }
+
+    function testExtendAutoReleaseRequiresShipped() public {
+        _fund();
+        vm.prank(buyer);
+        vm.expectRevert("not shipped");
+        escrow.extendAutoRelease(LISTING);
+    }
+
+    function testExtendAutoReleaseOnlyOnce() public {
+        _fund();
+        vm.prank(seller);
+        escrow.markShipped(LISTING);
+        vm.prank(buyer);
+        escrow.extendAutoRelease(LISTING);
+        vm.prank(buyer);
+        vm.expectRevert("already extended");
+        escrow.extendAutoRelease(LISTING);
     }
 
     function testClaimShipmentTimeoutBlockedOnceDisputed() public {

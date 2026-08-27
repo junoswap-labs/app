@@ -1,8 +1,8 @@
 'use client'
 
 import { useRef } from 'react'
-import { ImageOff, Loader2, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Camera, Loader2, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useImageUpload } from '@/hooks/useImageUpload'
 import { toastError } from '@/lib/toast'
 
@@ -13,8 +13,9 @@ interface ImageUploadFieldProps {
 }
 
 /** Shared upload primitive: pick an image → converted to WebP + pinned to IPFS server-side
- *  (app/api/upload/image) → onChange gets the resulting URL. Used by the RWA listing form and
- *  (once built) the Redeem item creation form. */
+ *  (app/api/upload/image) → onChange gets the resulting URL. Used by the RWA and Redeem listing
+ *  forms. The whole tile is the click target (icon-only — no "Upload"/"Replace"/"Remove" buttons);
+ *  a small badge in the corner removes the photo once one is set. */
 export function ImageUploadField({ value, onChange, label = 'Image' }: ImageUploadFieldProps) {
     const inputRef = useRef<HTMLInputElement>(null)
     const upload = useImageUpload()
@@ -30,39 +31,45 @@ export function ImageUploadField({ value, onChange, label = 'Image' }: ImageUplo
     return (
         <div className="space-y-1.5">
             <span className="text-sm font-medium leading-none">{label}</span>
-            <div className="flex items-center gap-3">
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted">
+            <div className="group relative h-20 w-20 shrink-0">
+                <button
+                    type="button"
+                    disabled={upload.isPending}
+                    onClick={() => inputRef.current?.click()}
+                    aria-label={value ? 'Replace photo' : 'Add photo'}
+                    className={cn(
+                        'flex h-20 w-20 items-center justify-center overflow-hidden rounded-md border bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-70',
+                        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                        !value && 'border-dashed hover:border-primary hover:bg-accent'
+                    )}
+                >
                     {upload.isPending ? (
                         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                     ) : value ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={value} alt="" className="h-full w-full object-cover" />
                     ) : (
-                        <ImageOff className="h-5 w-5 text-muted-foreground" />
+                        <Camera className="h-5 w-5 text-muted-foreground" />
                     )}
-                </div>
-                <div className="flex gap-2">
-                    <Button
+                </button>
+
+                {value && !upload.isPending && (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-black/0 opacity-0 transition-opacity group-hover:bg-black/40 group-hover:opacity-100">
+                        <Camera className="h-5 w-5 text-white" />
+                    </div>
+                )}
+
+                {value && !upload.isPending && (
+                    <button
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={upload.isPending}
-                        onClick={() => inputRef.current?.click()}
+                        onClick={() => onChange(null)}
+                        aria-label="Remove photo"
+                        className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     >
-                        {value ? 'Replace' : 'Upload'}
-                    </Button>
-                    {value && (
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={upload.isPending}
-                            onClick={() => onChange(null)}
-                        >
-                            <X className="mr-1 h-3.5 w-3.5" /> Remove
-                        </Button>
-                    )}
-                </div>
+                        <X className="h-3 w-3" />
+                    </button>
+                )}
+
                 <input
                     ref={inputRef}
                     type="file"

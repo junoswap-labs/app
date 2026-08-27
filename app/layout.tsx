@@ -6,7 +6,7 @@ import { Providers } from './providers'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
 export const metadata: Metadata = {
-    title: 'Junoswap Marketplace',
+    title: 'Junoswap Reward',
     description: 'Trade NFTs and real-world assets with ERC20 tokens on Bitkub Chain.',
 }
 

@@ -88,56 +88,73 @@ contract JunoPtsTest is Test {
         assertEq(pts.balanceOf(bob), 40);
     }
 
-    function testTransferFromUnauthorizedSenderReverts() public {
+    /// Unregistered holder paying a Registered counterparty (a merchant, an escrow) is the whole
+    /// point of the token — this must work without the holder ever being vetted.
+    function testUnregisteredSenderCanPayRegisteredRecipient() public {
         registry.revokeRole(registry.AUTHORIZE_ROLE(), alice);
         _mint(alice, 100); // minting doesn't require sender-authorization (from == address(0))
         vm.prank(alice);
-        vm.expectRevert("both parties must be authorized");
         pts.transfer(bob, 40);
+        assertEq(pts.balanceOf(bob), 40);
     }
 
-    function testTransferToUnauthorizedRecipientReverts() public {
+    function testRegisteredSenderCanPayUnregisteredRecipient() public {
         _mint(alice, 100);
         vm.prank(alice);
-        vm.expectRevert("both parties must be authorized");
         pts.transfer(treasury, 40); // treasury never granted AUTHORIZE_ROLE
+        assertEq(pts.balanceOf(treasury), 40);
     }
 
-    function testTransferFromRespectsAuthorizationGating() public {
+    /// The restriction that actually matters: two unregistered wallets can't move points between
+    /// themselves, so points can never trade on a secondary market.
+    function testTransferBetweenTwoUnregisteredPartiesReverts() public {
+        registry.revokeRole(registry.AUTHORIZE_ROLE(), alice);
+        _mint(alice, 100);
+        vm.prank(alice);
+        vm.expectRevert("sender or recipient must be authorized");
+        pts.transfer(treasury, 40);
+    }
+
+    /// transferFrom is gated on the two parties, not on whoever pulls the allowance — bob being
+    /// Registered must not launder a transfer between two unregistered wallets.
+    function testTransferFromIsGatedOnPartiesNotSpender() public {
+        registry.revokeRole(registry.AUTHORIZE_ROLE(), alice);
         _mint(alice, 100);
         vm.prank(alice);
         pts.approve(bob, 40);
         vm.prank(bob);
-        vm.expectRevert("both parties must be authorized");
+        vm.expectRevert("sender or recipient must be authorized");
         pts.transferFrom(alice, treasury, 40);
     }
 
-    function testTransferRouterBypassesRecipientCheckOnTransferFrom() public {
-        _mint(alice, 100);
-        vm.prank(alice);
-        pts.approve(router, 40);
-        vm.prank(router);
-        pts.transferFrom(alice, treasury, 40); // treasury unregistered, but router only needs sender authorized
-        assertEq(pts.balanceOf(treasury), 40);
-    }
-
-    function testTransferRouterStillRequiresSenderAuthorized() public {
+    function testTransferRouterMovesPointsBetweenUnregisteredParties() public {
         registry.revokeRole(registry.AUTHORIZE_ROLE(), alice);
         _mint(alice, 100);
         vm.prank(alice);
         pts.approve(router, 40);
         vm.prank(router);
-        vm.expectRevert("sender must be authorized");
+        // Neither side is Registered: only the router's own role permits this, which is why that
+        // role belongs to escrow/settlement contracts and never to an EOA.
         pts.transferFrom(alice, treasury, 40);
+        assertEq(pts.balanceOf(treasury), 40);
     }
 
     // ---- internalTransfer / externalTransfer (KAP-22 parity) ----
 
-    function testInternalTransferRequiresBothAuthorized() public {
+    function testInternalTransferRequiresOneAuthorizedParty() public {
+        registry.revokeRole(registry.AUTHORIZE_ROLE(), alice);
         _mint(alice, 100);
         vm.prank(router);
-        vm.expectRevert("both parties must be authorized");
+        vm.expectRevert("sender or recipient must be authorized");
         pts.internalTransfer(alice, treasury, 40);
+    }
+
+    function testInternalTransferAllowsRegisteredRecipientOnly() public {
+        registry.revokeRole(registry.AUTHORIZE_ROLE(), alice);
+        _mint(alice, 100);
+        vm.prank(router);
+        pts.internalTransfer(alice, bob, 40);
+        assertEq(pts.balanceOf(bob), 40);
     }
 
     function testInternalTransferSucceedsWhenBothAuthorized() public {

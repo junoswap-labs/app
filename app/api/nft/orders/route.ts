@@ -3,6 +3,7 @@ import { recoverTypedDataAddress } from 'viem'
 import { getSessionWallet } from '@/lib/auth/session'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { NFT_ORDER_TYPES, computeNftOrderHash, nftOrderDomain, type NftOrder } from '@/lib/eip712'
+import { isSupportedChainId } from '@/config/contract-addresses'
 
 // Reads go straight to Supabase from the browser (public-read RLS policy, see
 // supabase/migrations/0001_base_schema.sql) — this route only handles creating a new listing,
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
             { error: 'order, signature, chainId, and verifyingContract are required' },
             { status: 400 }
         )
+    }
+    if (!isSupportedChainId(Number(chainId))) {
+        return NextResponse.json({ error: `unsupported chainId: ${String(chainId)}` }, { status: 400 })
     }
 
     let nftOrder: NftOrder
@@ -73,6 +77,7 @@ export async function POST(request: NextRequest) {
         .from('nft_orders')
         .insert({
             order_hash: orderHash,
+            chain_id: Number(chainId),
             seller: wallet,
             nft_contract: nftOrder.nftContract.toLowerCase(),
             token_id: nftOrder.tokenId.toString(),

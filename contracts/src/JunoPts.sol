@@ -12,13 +12,18 @@ import {PermissionRegistry} from "./PermissionRegistry.sol";
 ///         KAP-22 Solidity interface could not be confirmed from public docs at the time this was
 ///         written (see docs/Marketplace_Redeem_Feature.md) — re-validate function signatures
 ///         against the real interface (via the kub-docs MCP) before mainnet deploy.
-/// @dev Ordinary `transfer`/`transferFrom` require BOTH parties to hold PermissionRegistry's
-///      AUTHORIZE_ROLE (the project's own "Registered" concept, not Bitkub's IKYCBitkubChain —
-///      see PermissionRegistry.sol's header comment on why) — this is the "transferable only to
-///      Registered parties via an intermediary contract" behavior the token was specifically
-///      designed for. A TRANSFER_ROUTER_ROLE holder (e.g. RedeemNftSettlement) is exempt from the
-///      recipient-side check so it can pay out to addresses that aren't themselves Registered
-///      (a merchant treasury, say) — the sender side is still checked either way.
+/// @dev Ordinary `transfer`/`transferFrom` require AT LEAST ONE side — sender or recipient — to
+///      hold PermissionRegistry's AUTHORIZE_ROLE (the project's own "Registered" concept, not
+///      Bitkub's IKYCBitkubChain, see PermissionRegistry.sol's header comment on why). That is the
+///      property the token exists for: points can always move between a holder and a Registered
+///      counterparty (a merchant, an escrow, the platform), but two unregistered wallets can never
+///      trade points with each other, so no secondary market can form.
+///      Consequences worth knowing before granting anything:
+///      - Every contract that custodies points — RwaEscrow, RedeemNftSettlement, any future escrow
+///        — must itself hold AUTHORIZE_ROLE, otherwise an unregistered buyer cannot pay into it.
+///      - A TRANSFER_ROUTER_ROLE holder bypasses the check entirely, so it can move points between
+///        two unregistered addresses (an escrow releasing to a merchant treasury). Grant it only to
+///        contracts, never to an EOA: it is a blanket exemption, not a narrowed one.
 /// @dev Period/expiration bookkeeping (`_periodBalance`) records which period tokens were minted
 ///      into, for a future expiry-sweep feature — it is intentionally NOT touched by ordinary
 ///      transfers (only by mint/burn/*CustomPeriod calls), so it reflects issuance history, not
@@ -153,7 +158,7 @@ contract JunoPts is ERC20, AccessControl, Pausable {
         onlyRole(TRANSFER_ROUTER_ROLE)
         whenNotPaused
     {
-        require(registry.isAuthorized(from) && registry.isAuthorized(to), "both parties must be authorized");
+        _requireAuthorizedParty(from, to);
         _transfer(from, to, amount);
     }
 
@@ -181,15 +186,22 @@ contract JunoPts is ERC20, AccessControl, Pausable {
 
     // ---- Standard ERC20 transfer/transferFrom gating ----
 
+    /// @dev The whole transfer restriction, in one place. Either side being Registered is enough:
+    ///      an unregistered holder can always pay a merchant or an escrow, and a merchant or escrow
+    ///      can always pay them back — what stays impossible is two unregistered wallets moving
+    ///      points between themselves.
+    function _requireAuthorizedParty(address from, address to) private view {
+        require(registry.isAuthorized(from) || registry.isAuthorized(to), "sender or recipient must be authorized");
+    }
+
     function _beforeTokenTransfer(address from, address to, uint256 /* amount */ ) internal view override {
         if (from == address(0) || to == address(0)) return; // mint/burn — not a transfer, not paused-gated
         if (hasRole(COMMITTEE_ROLE, _msgSender())) return; // fraud recovery bypasses gating entirely, incl. pause
         require(!paused(), "Pausable: paused");
-        if (hasRole(TRANSFER_ROUTER_ROLE, _msgSender())) {
-            require(registry.isAuthorized(from), "sender must be authorized");
-        } else {
-            require(registry.isAuthorized(from) && registry.isAuthorized(to), "both parties must be authorized");
-        }
+        // A router is a trusted contract moving points on the protocol's behalf (escrow release,
+        // settlement payout), where neither endpoint need be Registered.
+        if (hasRole(TRANSFER_ROUTER_ROLE, _msgSender())) return;
+        _requireAuthorizedParty(from, to);
     }
 
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {

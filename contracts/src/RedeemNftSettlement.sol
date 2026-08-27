@@ -27,10 +27,15 @@ interface IMintableERC721 {
 ///         anyone, on the buyer's behalf) submits it here to settle atomically. Up to 3 price legs
 ///         let one redemption combine JunoPts with other ERC20/KAP20 tokens (e.g. 900 PTS +
 ///         500000 CMM + 0.5 KUB in a single redeem).
-/// @dev The JunoPts leg is BURNED (consumed loyalty points, not revenue); every other leg is
-///      transferred to `treasury` (real revenue). The operator's curator status is checked live
-///      against PermissionRegistry at redemption time, not just validity at signing time — if a
-///      partner's redeem rights are revoked between signing and redemption, the offer stops working.
+/// @dev The JunoPts leg is BURNED (consumed loyalty points, not revenue). For Official-tier items
+///      every other leg goes entirely to `treasury` (it's the platform's own inventory). For
+///      Registered-tier items with a non-zero `payoutWallet` (the lister's own wallet), every other
+///      leg splits PLATFORM_FEE_BPS to `treasury` and the remainder to `payoutWallet` — a Registered
+///      partner's items must have a payout destination, not just a flat platform cut. A Registered
+///      offer with a zero payoutWallet falls back to the Official behavior (100% to treasury).
+///      The operator's curator status is checked live against PermissionRegistry at redemption
+///      time, not just validity at signing time — if a partner's redeem rights are revoked between
+///      signing and redemption, the offer stops working.
 contract RedeemNftSettlement is EIP712, Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -51,14 +56,18 @@ contract RedeemNftSettlement is EIP712, Ownable2Step, Pausable, ReentrancyGuard 
         address nftContract;
         uint256 tokenId;
         Tier tier;
+        address payoutWallet; // Registered tier only — must be address(0) for Official offers
         PriceLeg[3] legs; // up to 3 combined price legs; unused slots have token == address(0)
         uint256 nonce;
         uint256 expiry;
     }
 
+    uint256 public constant PLATFORM_FEE_BPS = 1000; // 10% — Registered-tier cut of every non-PTS leg
+    uint256 private constant BPS_DENOMINATOR = 10000;
+
     bytes32 private constant PRICE_LEG_TYPEHASH = keccak256("PriceLeg(address token,uint256 amount)");
     bytes32 private constant REDEEM_OFFER_TYPEHASH = keccak256(
-        "RedeemOffer(uint256 itemId,address operator,address buyer,address nftContract,uint256 tokenId,uint8 tier,PriceLeg[3] legs,uint256 nonce,uint256 expiry)PriceLeg(address token,uint256 amount)"
+        "RedeemOffer(uint256 itemId,address operator,address buyer,address nftContract,uint256 tokenId,uint8 tier,address payoutWallet,PriceLeg[3] legs,uint256 nonce,uint256 expiry)PriceLeg(address token,uint256 amount)"
     );
 
     PermissionRegistry public immutable registry;
@@ -74,6 +83,9 @@ contract RedeemNftSettlement is EIP712, Ownable2Step, Pausable, ReentrancyGuard 
         address nftContract,
         uint256 tokenId,
         Tier tier
+    );
+    event RegisteredLegSettled(
+        bytes32 indexed offerHash, address indexed token, address indexed payoutWallet, uint256 toPayout, uint256 toTreasury
     );
     event TreasuryUpdated(address indexed treasury);
 
@@ -115,6 +127,7 @@ contract RedeemNftSettlement is EIP712, Ownable2Step, Pausable, ReentrancyGuard 
                 offer.nftContract,
                 offer.tokenId,
                 uint8(offer.tier),
+                offer.payoutWallet,
                 legsHash,
                 offer.nonce,
                 offer.expiry
@@ -131,6 +144,7 @@ contract RedeemNftSettlement is EIP712, Ownable2Step, Pausable, ReentrancyGuard 
 
         require(block.timestamp <= offer.expiry, "offer expired");
         require(!redeemed[offerHash], "offer already redeemed");
+        require(offer.tier == Tier.Registered || offer.payoutWallet == address(0), "payoutWallet only for Registered");
 
         address signer = ECDSA.recover(offerDigest(offer), signature);
         require(signer == offer.operator, "bad signature");
@@ -143,13 +157,26 @@ contract RedeemNftSettlement is EIP712, Ownable2Step, Pausable, ReentrancyGuard 
 
         redeemed[offerHash] = true;
 
+        // A Registered item with no payoutWallet set falls back to the Official 100%-to-treasury
+        // split — e.g. a Registered-tier consignment item the platform itself is settling for.
+        bool splitToPayout = offer.tier == Tier.Registered && offer.payoutWallet != address(0);
+
         for (uint256 i = 0; i < 3; i++) {
             PriceLeg calldata leg = offer.legs[i];
             if (leg.token == address(0) || leg.amount == 0) continue;
             if (leg.token == address(junoPts)) {
                 junoPts.burnFrom(offer.buyer, leg.amount);
+                continue;
+            }
+            IERC20 token = IERC20(leg.token);
+            if (splitToPayout) {
+                uint256 fee = (leg.amount * PLATFORM_FEE_BPS) / BPS_DENOMINATOR;
+                uint256 toPayout = leg.amount - fee;
+                token.safeTransferFrom(offer.buyer, offer.payoutWallet, toPayout);
+                if (fee > 0) token.safeTransferFrom(offer.buyer, treasury, fee);
+                emit RegisteredLegSettled(offerHash, leg.token, offer.payoutWallet, toPayout, fee);
             } else {
-                IERC20(leg.token).safeTransferFrom(offer.buyer, treasury, leg.amount);
+                token.safeTransferFrom(offer.buyer, treasury, leg.amount);
             }
         }
 

@@ -12,7 +12,9 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Jazzicon } from './jazzicon'
-import { Check, Copy, ExternalLink, LogOut, Sun, Moon } from 'lucide-react'
+import { Check, Copy, ExternalLink, LogOut, Package, Settings, Shield, Sun, Moon } from 'lucide-react'
+import Link from 'next/link'
+import { useIsAdmin, useIsPartnerRedeem } from '@/hooks/useOnChainRoles'
 import { useTheme } from 'next-themes'
 import { useState, useEffect } from 'react'
 import { toastSuccess } from '@/lib/toast'
@@ -23,6 +25,10 @@ export function AccountDropdown({ children }: { children: React.ReactNode }) {
     const { address } = useAccount()
     const chainId = useChainId()
     const { setTheme, resolvedTheme } = useTheme()
+    // On-chain role read (PermissionRegistry), not session state — a non-admin never sees the entry
+    // and /app/admin re-checks the same role anyway.
+    const isAdmin = useIsAdmin()
+    const isPartnerRedeem = useIsPartnerRedeem()
     const [mounted, setMounted] = useState(false)
     const [copied, setCopied] = useState(false)
     useEffect(() => {
@@ -101,6 +107,28 @@ export function AccountDropdown({ children }: { children: React.ReactNode }) {
                 </div>
                 <Separator />
                 <div className="p-2">
+                    <DropdownMenuItem asChild className="flex items-center gap-3 cursor-pointer">
+                        <Link href="/app/settings">
+                            <Settings className="h-4 w-4" aria-hidden="true" />
+                            <span>Settings</span>
+                        </Link>
+                    </DropdownMenuItem>
+                    {(isAdmin || isPartnerRedeem) && (
+                        <DropdownMenuItem asChild className="flex items-center gap-3 cursor-pointer">
+                            <Link href="/app/redeem/manage">
+                                <Package className="h-4 w-4" aria-hidden="true" />
+                                <span>Partner Panel</span>
+                            </Link>
+                        </DropdownMenuItem>
+                    )}
+                    {isAdmin && (
+                        <DropdownMenuItem asChild className="flex items-center gap-3 cursor-pointer">
+                            <Link href="/app/admin">
+                                <Shield className="h-4 w-4" aria-hidden="true" />
+                                <span>Admin</span>
+                            </Link>
+                        </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                         onClick={handleViewOnExplorer}
                         className="flex items-center gap-3 cursor-pointer"
